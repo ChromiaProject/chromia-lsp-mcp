@@ -94,6 +94,7 @@ release-patch:
   <<: *install_dependencies
   script:
     - |
+      apk add --update nodejs npm
       NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
       echo "Current version is $CURRENT_VERSION"
       echo "Will create new version $NEXT_VERSION"
@@ -117,6 +118,7 @@ release-minor:
   <<: *install_dependencies
   script:
     - |
+      apk add --update nodejs npm
       NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
       echo "Current version is $CURRENT_VERSION"
       echo "Will create new version $NEXT_VERSION"
