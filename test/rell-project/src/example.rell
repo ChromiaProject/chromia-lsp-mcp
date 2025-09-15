@@ -1,0 +1,96 @@
+/**
+ * A simple Rell module for testing LSP functionality
+ */
+
+// Entity definitions
+entity user {
+    name: text;
+    email: text;
+    age: integer;
+    mutable balance: decimal;
+}
+
+entity product {
+    name: text;
+    price: decimal;
+    category: text;
+}
+
+// Operation to create a new user
+operation create_user(name: text, email: text, age: integer) {
+    require(name.size() > 0, "Name cannot be empty");
+    require(age >= 0, "Age must be non-negative");
+    
+    create user(
+        name = name,
+        email = email,
+        age = age,
+        balance = 0.0
+    );
+}
+
+// Operation to add balance to a user
+operation add_balance(user_name: text, amount: decimal) {
+    require(amount > 0, "Amount must be positive");
+    
+    val user = user @{ .name == user_name };
+    user.balance += amount;
+}
+
+// Query to get user information
+query get_user(name: text): user? {
+    return user @? { .name == name };
+}
+
+// Function with an error - missing return type annotation (will generate diagnostic)
+function calculate_total(price: decimal, tax_rate: decimal) {
+    return price * (1.0 + tax_rate);
+}
+
+// Function with unused variable (will generate diagnostic)
+function process_payment(amount: decimal): boolean {
+    val unused_var = "This is not used";
+    return amount > 0;
+}
+
+// Reference to undefined variable (will generate diagnostic)
+operation test_operation() {
+    val result = undefined_variable + 10;
+}
+
+// Valid function for testing hover and completion
+function format_currency(amount: decimal): text {
+    return "$%.2f".format(amount);
+}
+
+// Another entity for more complex testing
+entity transaction {
+    from_user: user;
+    to_user: user;
+    amount: decimal;
+    timestamp: timestamp;
+}
+
+// Operation with multiple parameters for testing
+operation transfer_money(
+    from_user_name: text, 
+    to_user_name: text, 
+    amount: decimal
+) {
+    require(amount > 0, "Transfer amount must be positive");
+    
+    val from = user @{ .name == from_user_name };
+    val to = user @{ .name == to_user_name };
+    
+    require(from.balance >= amount, "Insufficient balance");
+    
+    from.balance -= amount;
+    to.balance += amount;
+    
+    create transaction(
+        from_user = from,
+        to_user = to,
+        amount = amount,
+        timestamp = op_context.last_block_time
+    );
+}

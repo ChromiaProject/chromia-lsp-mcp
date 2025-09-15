@@ -1,0 +1,33 @@
+/**
+ * Main module configuration for the test Rell project
+ */
+
+// Module configuration
+@mount('test_app')
+module;
+
+// Import statements for testing completion
+import lib.ft4.core.accounts.*;
+import lib.ft4.core.assets.*;
+
+// Constants for testing
+val MAX_USERS = 1000;
+val DEFAULT_BALANCE = 0.0;
+
+// A simple struct for testing
+struct user_info {
+    name: text;
+    email: text;
+    registration_date: timestamp;
+}
+
+// Namespace for utility functions
+namespace utils {
+    function validate_email(email: text): boolean {
+        return email.contains("@") and email.contains(".");
+    }
+    
+    function get_current_time(): timestamp {
+        return op_context.last_block_time;
+    }
+}
