@@ -4,16 +4,17 @@
 
 - [LSP MCP Server for Rell](#lsp-mcp-server-for-rell)
   - [Overview](#overview)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+    - [Option 1: Install from NPM (Recommended)](#option-1-install-from-npm-recommended)
+    - [Option 2: Build from Source](#option-2-build-from-source)
   - [Configuration](#configuration)
-    - [Local build](#local-build)
-    - [NPM from repository - (Not recommended)](#npm-from-repository-not-recommended)
+    - [Claude Configuration for NPM Installation](#claude-configuration-for-npm-installation)
+    - [Claude Configuration for Local Build](#claude-configuration-for-local-build)
   - [Features](#features)
     - [MCP Tools](#mcp-tools)
     - [MCP Resources](#mcp-resources)
     - [Additional Features](#additional-features)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [Building the MCP Server](#building-the-mcp-server)
   - [Testing](#testing)
     - [Running Tests](#running-tests)
     - [Test Coverage](#test-coverage)
@@ -46,9 +47,6 @@
 An MCP (Model Context Protocol) server for interacting with the Rell Language Server Protocol (LSP) interface.
 This server acts as a bridge that allows LLMs to query LSP Hover and Completion providers for Rell projects.
 
-**Note**: This project is based on [@Tritlo/lsp-mcp](https://github.com/Tritlo/lsp-mcp) with slight modifications to remove unused code and use it specifically with the Rell language server.
-The Rell LSP is automatically downloaded and managed by this server.
-
 ## Overview
 
 The MCP Server works by:
@@ -59,29 +57,48 @@ The MCP Server works by:
 
 This enables LLMs to utilize the Rell LSP for more accurate code suggestions and analysis.
 
-## Configuration
+## Prerequisites
 
-### Local build
+- Node.js (v16 or later)
+- npm
+- Java JDK (for running the Rell LSP server)
 
-```json
-{
-  "mcpServers": {
-    "rell-lsp-mcp": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["/path/to/this/project/dist/index.js"]
-    }
-  }
-}
-```
+## Installation
 
-### NPM from repository - (Not recommended)
+### Option 1: Install from NPM (Recommended)
+
+Install the package globally using npm:
 
 ```sh
-npm install git+https://github.com/peaceful-wanderer/lsp-mcp-chromia.git -g
+  npm install @chromia/chromia-lsp-mcp -g
 ```
 
-- Claude configuration will look like :
+### Option 2: Build from Source
+
+1. Clone this repository:
+
+   ```sh
+   git clone ...
+   cd lsp-mcp
+   ```
+
+2. Install dependencies:
+
+   ```sh
+   npm install
+   ```
+
+3. Build the MCP server:
+
+   ```sh
+   npm run build
+   ```
+
+## Configuration
+
+After installation, you need to configure Claude to use the MCP server.
+
+### Claude Configuration for NPM Installation
 
 ```json
 {
@@ -94,9 +111,23 @@ npm install git+https://github.com/peaceful-wanderer/lsp-mcp-chromia.git -g
 }
 ```
 
-Parameters:
+### Claude Configuration for Local Build
 
-- `Rell LSP version`: optional argument to explicitly set which Rell LSP version it should be used, otherwise, it will look for cached LSP jars, if not found it will download the latest version
+```json
+{
+  "mcpServers": {
+    "chromia-lsp-mcp": {
+      "command": "node",
+      "args": ["/path/to/this/project/dist/index.js"]
+    }
+  }
+}
+```
+
+> **Parameters** :
+>
+> - `Rell LSP version`:
+>   optional argument to explicitly set which Rell LSP version it should be used, otherwise, it will look for cached LSP jars, if not found it will download the latest version e.g: `0.8.8`
 
 ## Features
 
@@ -125,35 +156,6 @@ Parameters:
 - Runtime-configurable log level
 - Detailed error handling and reporting
 - Simple command-line interface
-
-## Prerequisites
-
-- Node.js (v16 or later)
-- npm
-- Java JDK (for running the Rell LSP server)
-
-## Installation
-
-### Building the MCP Server
-
-1. Clone this repository:
-
-   ```
-   git clone ...
-   cd lsp-mcp
-   ```
-
-2. Install dependencies:
-
-   ```
-   npm install
-   ```
-
-3. Build the MCP server:
-
-   ```
-   npm run build
-   ```
 
 ## Testing
 
