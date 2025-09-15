@@ -51,8 +51,6 @@ build:
 deploy-npm:
   stage: release
   <<: *install_dependencies
-  dependencies:
-    - build
   variables:
     NPM_TOKEN: $NPM_TOKEN
   before_script:
@@ -61,7 +59,7 @@ deploy-npm:
   script:
     - |
       PACKAGE_VERSION=$(node -p "require('./package.json').version")
-      if [ "v$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
+      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
         echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
         exit 1
       fi
@@ -69,28 +67,34 @@ deploy-npm:
     - npm publish --access public
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
+  when: manual
 
 deploy-npm-dry-run:
   stage: release
   <<: *install_dependencies
-  dependencies:
-    - build
   variables:
     NPM_TOKEN: $NPM_TOKEN
   before_script:
     - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
     - npm whoami
   script:
+    - |
+      PACKAGE_VERSION=$(node -p "require('./package.json').version")
+      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
+        echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
+        exit 1
+      fi
     - npm pack --dry-run
     - npm publish --dry-run
   rules:
     - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+  when: manual
 
 release-patch:
   extends: .release
   stage: release
-  image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
   script:
+    - apk add --no-cache nodejs npm
     - |
       NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
       echo "Current version is $CURRENT_VERSION"
@@ -102,7 +106,7 @@ release-patch:
       git commit -m "chore: bump version to $NEXT_VERSION"
 
       echo "Creating and pushing tag v$NEXT_VERSION"
-      git tag v$NEXT_VERSION
+      git tag $NEXT_VERSION
       git push origin $CI_COMMIT_REF_NAME
       git push --tags
   only:
@@ -112,8 +116,8 @@ release-patch:
 release-minor:
   extends: .release
   stage: release
-  image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
   script:
+    - apk add --no-cache nodejs npm
     - |
       NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
       echo "Current version is $CURRENT_VERSION"
@@ -125,7 +129,7 @@ release-minor:
       git commit -m "chore: bump version to $NEXT_VERSION"
 
       echo "Creating and pushing tag v$NEXT_VERSION"
-      git tag v$NEXT_VERSION
+      git tag $NEXT_VERSION
       git push origin $CI_COMMIT_REF_NAME
       git push --tags
   only:
