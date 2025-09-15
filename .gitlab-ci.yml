@@ -1,0 +1,140 @@
+include:
+  - project: chromaway/core-infra/gitlab-automation
+    ref: 1.1.6
+    file:
+      - templates/release.yml
+      - templates/container-dependency-scanning.yml
+
+image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
+
+stages:
+  - build
+  - release
+  - deploy
+
+variables:
+  NODE_VERSION: "22"
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+
+cache:
+  key:
+    files:
+      - package-lock.json
+  paths:
+    - node_modules/
+    - .npm/
+
+.install_dependencies: &install_dependencies
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+
+build:
+  stage: build
+  <<: *install_dependencies
+  script:
+    - npm run build
+    - npm run test
+  coverage: '/Lines\s*:\s*(\d+\.\d+)%/'
+  artifacts:
+    paths:
+      - dist/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+deploy-npm:
+  stage: release
+  <<: *install_dependencies
+  dependencies:
+    - build
+  variables:
+    NPM_TOKEN: $NPM_TOKEN
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
+    - npm whoami
+  script:
+    ## NOTE: Skip the verification of the package.json version matches the git tag cause of `release` stage
+    # - |
+    #   PACKAGE_VERSION=$(node -p "require('./package.json').version")
+    #   if [ "v$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
+    #     echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
+    #     exit 1
+    #   fi
+    - npm pkg set version=$CI_COMMIT_TAG
+    - npm pack --dry-run
+    - npm publish --access public
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
+  environment:
+    name: npm
+    url: https://www.npmjs.com/package/chromia-lsp-mcp
+
+deploy-npm-dry-run:
+  stage: release
+  <<: *install_dependencies
+  dependencies:
+    - build
+  variables:
+    NPM_TOKEN: $NPM_TOKEN
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
+    - npm whoami
+  script:
+    - npm pkg set version=$CI_COMMIT_TAG
+    - npm pack --dry-run
+    - npm publish --dry-run
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  allow_failure: true
+
+release-patch:
+  extends: .release
+  stage: release
+  script:
+    - |
+      NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+      echo "Current version is $CURRENT_VERSION"
+      echo "Will create new version $NEXT_VERSION"
+
+      echo "Updating package.json version to $NEXT_VERSION"
+      npm version $NEXT_VERSION --no-git-tag-version
+      git add package.json package-lock.json
+      git commit -m "chore: bump version to $NEXT_VERSION"
+
+      echo "Creating and pushing tag v$NEXT_VERSION"
+      git tag v$NEXT_VERSION
+      git push origin $CI_COMMIT_REF_NAME
+      git push --tags
+  only:
+    - dev
+    - /^support\/.*$/
+
+release-minor:
+  extends: .release
+  stage: release
+  script:
+    - |
+      NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
+      echo "Current version is $CURRENT_VERSION"
+      echo "Will create new version $NEXT_VERSION"
+
+      echo "Updating package.json version to $NEXT_VERSION"
+      npm version $NEXT_VERSION --no-git-tag-version
+      git add package.json package-lock.json
+      git commit -m "chore: bump version to $NEXT_VERSION"
+
+      echo "Creating and pushing tag v$NEXT_VERSION"
+      git tag v$NEXT_VERSION
+      git push origin $CI_COMMIT_REF_NAME
+      git push --tags
+  only:
+    - dev
+    - /^support\/.*$/
