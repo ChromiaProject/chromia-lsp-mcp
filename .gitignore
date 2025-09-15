@@ -2,3 +2,4 @@ dist-newstyle/
 node_modules/
 dist/
 .mcp.json
+.DS_Store
