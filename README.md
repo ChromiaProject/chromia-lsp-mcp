@@ -105,7 +105,10 @@ After installation, you need to configure Claude to use the MCP server.
   "mcpServers": {
     "lsp-mcp": {
       "command": "npx",
-      "args": ["chromia-lsp-mcp"]
+      "args": [
+        "chromia-lsp-mcp",
+        "0.8.8" // optional Rell LSP version
+      ]
     }
   }
 }
