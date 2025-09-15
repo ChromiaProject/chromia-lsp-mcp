@@ -91,6 +91,7 @@ deploy-npm-dry-run:
 release-patch:
   extends: .release
   stage: release
+  <<: *install_dependencies
   script:
     - |
       NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
@@ -113,6 +114,7 @@ release-patch:
 release-minor:
   extends: .release
   stage: release
+  <<: *install_dependencies
   script:
     - |
       NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
