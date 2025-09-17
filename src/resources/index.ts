@@ -14,18 +14,13 @@ export const parseUriPath = (uri: URL): string => {
 };
 
 // Helper function to parse location parameters
-export const parseLocationParams = (uri: URL): { filePath: string, line: number, character: number, languageId: string } => {
+export const parseLocationParams = (uri: URL): { filePath: string, line: number, character: number } => {
   // Get the file path
   const filePath = parseUriPath(uri);
 
   // Get the query parameters
   const lineParam = uri.searchParams.get('line');
   const columnParam = uri.searchParams.get('column');
-  const languageId = uri.searchParams.get('language_id');
-
-  if (!languageId) {
-    throw new Error("language_id parameter is required");
-  }
 
   if (!filePath || !lineParam || !columnParam) {
     throw new Error("Required parameters: file_path, line, column");
@@ -39,7 +34,7 @@ export const parseLocationParams = (uri: URL): { filePath: string, line: number,
     throw new Error("Line and column must be valid numbers");
   }
 
-  return { filePath, line, character, languageId };
+  return { filePath, line, character };
 };
 
 // Get resource handlers
@@ -111,7 +106,7 @@ export const getResourceHandlers = (lspClient: LSPClient | null): Record<string,
         // Extract parameters from URI
         // Format: lsp-hover://{file_path}?line={line}&character={character}&language_id={language_id}
         const hoverUri = new URL(uri);
-        const { filePath, line, character, languageId } = parseLocationParams(hoverUri);
+        const { filePath, line, character } = parseLocationParams(hoverUri);
 
         debug(`Getting hover info for ${filePath} at line ${line}, character ${character}`);
 
@@ -122,7 +117,7 @@ export const getResourceHandlers = (lspClient: LSPClient | null): Record<string,
         const fileUri = createFileUri(filePath);
 
         // Open the document in the LSP server (won't reopen if already open)
-        await lspClient!.openDocument(fileUri, fileContent, languageId);
+        await lspClient!.openDocument(fileUri, fileContent);
 
         // Get information at the location (LSP is 0-based)
         const hoverText = await lspClient!.getInfoOnLocation(fileUri, {
@@ -150,7 +145,7 @@ export const getResourceHandlers = (lspClient: LSPClient | null): Record<string,
         // Extract parameters from URI
         // Format: lsp-completions://{file_path}?line={line}&character={character}&language_id={language_id}
         const completionsUri = new URL(uri);
-        const { filePath, line, character, languageId } = parseLocationParams(completionsUri);
+        const { filePath, line, character } = parseLocationParams(completionsUri);
 
         debug(`Getting completions for ${filePath} at line ${line}, character ${character}`);
 
@@ -161,7 +156,7 @@ export const getResourceHandlers = (lspClient: LSPClient | null): Record<string,
         const fileUri = createFileUri(filePath);
 
         // Open the document in the LSP server (won't reopen if already open)
-        await lspClient!.openDocument(fileUri, fileContent, languageId);
+        await lspClient!.openDocument(fileUri, fileContent);
 
         // Get completions at the location (LSP is 0-based)
         const completions = await lspClient!.getCompletion(fileUri, {

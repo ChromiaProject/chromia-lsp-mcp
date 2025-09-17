@@ -86,12 +86,15 @@ export const GetCodeActionsArgsSchema = z.object({
 });
 
 export const OpenDocumentArgsSchema = z.object({
-  file_path: z.string().describe(`Path to the file to open`),
-  language_id: z.string().describe(`The programming language the file is written in`),
+  file_path: z.string().describe(`Path to the file to open`)
 });
 
 export const CloseDocumentArgsSchema = z.object({
   file_path: z.string().describe(`Path to the file to close`),
+});
+
+export const SaveDocumentArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file to save`),
 });
 
 export const GetDiagnosticsArgsSchema = z.object({

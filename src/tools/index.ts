@@ -11,11 +11,10 @@ import {
   SetLogLevelArgsSchema,
   RestartLSPServerArgsSchema,
   StartLSPArgsSchema,
-  ToolInput} from "../types/index.js";
+  ToolInput,
+  SaveDocumentArgsSchema} from "../types/index.js";
 import { LSPClient } from "../lspClient.js";
 import { debug, info, logError, setLogLevel } from "../logging/index.js";
-
-const lspVersion = process.argv[2];
 
 // Create a file URI from a file path
 export const createFileUri = (filePath: string): string => {
@@ -46,7 +45,7 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
         const fileUri = createFileUri(args.file_path);
 
         // Open the document in the LSP server (won't reopen if already open)
-        await lspClient!.openDocument(fileUri, fileContent, args.language_id);
+        await lspClient!.openDocument(fileUri, fileContent);
 
         // Get information at the location
         const text = await lspClient!.getInfoOnLocation(fileUri, {
@@ -76,7 +75,7 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
         const fileUri = createFileUri(args.file_path);
 
         // Open the document in the LSP server (won't reopen if already open)
-        await lspClient!.openDocument(fileUri, fileContent, args.language_id);
+        await lspClient!.openDocument(fileUri, fileContent);
 
         // Get completions at the location
         const completions = await lspClient!.getCompletion(fileUri, {
@@ -106,7 +105,7 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
         const fileUri = createFileUri(args.file_path);
 
         // Open the document in the LSP server (won't reopen if already open)
-        await lspClient!.openDocument(fileUri, fileContent, args.language_id);
+        await lspClient!.openDocument(fileUri, fileContent);
 
         // Get code actions for the range
         const codeActions = await lspClient!.getCodeActions(fileUri, {
@@ -207,7 +206,7 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
           const fileUri = createFileUri(args.file_path);
 
           // Open the document in the LSP server
-          await lspClient!.openDocument(fileUri, fileContent, args.language_id);
+          await lspClient!.openDocument(fileUri, fileContent);
 
           return {
             content: [{ type: "text", text: `File successfully opened: ${args.file_path}` }],
@@ -216,6 +215,35 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
           const errorMessage = error instanceof Error ? error.message : String(error);
           logError(`Error opening document: ${errorMessage}`);
           throw new Error(`Failed to open document: ${errorMessage}`);
+        }
+      }
+    },
+
+
+    "save_document": {
+      schema: SaveDocumentArgsSchema,
+      handler: async (args: any) => {
+        debug(`Saving document: ${args.file_path}`);
+
+        checkLspClientInitialized(lspClient);
+
+        try {
+          // Read the file content
+          const fileContent = await fs.readFile(args.file_path, 'utf-8');
+
+          // Create a file URI
+          const fileUri = createFileUri(args.file_path);
+
+          // Save the document in the LSP server
+          await lspClient!.saveDocument(fileUri, fileContent);
+
+          return {
+            content: [{ type: "text", text: `File successfully saved: ${args.file_path}` }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logError(`Error saving document: ${errorMessage}`);
+          throw new Error(`Failed to save document: ${errorMessage}`);
         }
       }
     },
@@ -346,6 +374,11 @@ export const getToolDefinitions = () => {
       name: "open_document",
       description: "Open a file in the LSP server for analysis. Use this tool before performing operations like getting diagnostics, hover information, or completions for a file. The file remains open for continued analysis until explicitly closed",
       inputSchema: zodToJsonSchema(OpenDocumentArgsSchema) as ToolInput,
+    },
+    {
+      name: "save_document", 
+      description: "Save a file in the LSP server for analysis. Use this tool before performing operations like getting diagnostics, hover information, or completions for a file. The file remains open for continued analysis until explicitly closed",
+      inputSchema: zodToJsonSchema(SaveDocumentArgsSchema) as ToolInput,
     },
     {
       name: "close_document",

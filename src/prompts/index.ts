@@ -50,7 +50,12 @@ This server provides access to Language Server Protocol (LSP) features through M
 
 2. Open a file for analysis:
    \`\`\`
-   open_document(file_path: "/path/to/your/project/src/file.rell", language_id: "rell")
+   open_document(file_path: "/path/to/your/project/src/file.rell")
+   \`\`\`
+
+3. After changing file content, save it for the LSP server to refresh diagnostics:
+   \`\`\`
+   save_document(file_path: "/path/to/your/project/src/file.rell")
    \`\`\`
 
 ## Available Tools
@@ -60,6 +65,7 @@ This server provides access to Language Server Protocol (LSP) features through M
 - **get_code_actions**: Get available code refactorings and quick fixes for a selection
 - **get_diagnostics**: Get errors and warnings for open files
 - **open_document**: Open a file for analysis
+- **save_document**: Save a file for LSP to refresh diagnotics
 - **close_document**: Close a file when done
 - **restart_lsp_server**: Restart the LSP server if needed
 - **set_log_level**: Control the server's logging verbosity
@@ -67,10 +73,10 @@ This server provides access to Language Server Protocol (LSP) features through M
 ## Workflow Example
 
 1. Start LSP: \`start_lsp(root_dir: "/my/project")\`
-2. Open file: \`open_document(file_path: "/my/project/src/app.rell", language_id: "rell")\`
+2. Open file: \`open_document(file_path: "/my/project/src/app.rell")\`
 3. Get diagnostics: \`get_diagnostics(file_path: "/my/project/src/app.rell")\`
-4. Get hover info: \`get_info_on_location(file_path: "/my/project/src/app.rell", line: 10, character: 15, language_id: "rell")\`
-5. Get completions: \`get_completions(file_path: "/my/project/src/app.rell", line: 12, character: 8, language_id: "rell")\`
+4. Get hover info: \`get_info_on_location(file_path: "/my/project/src/app.rell", line: 10, character: 15)\`
+5. Get completions: \`get_completions(file_path: "/my/project/src/app.rell", line: 12, character: 8)\`
 6. Close file when done: \`close_document(file_path: "/my/project/src/app.rell")\`
 
 Remember that line and character positions are 1-based (first line is 1, first character is 1), but LSP internally uses 0-based positions.`,

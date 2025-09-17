@@ -19,6 +19,8 @@ export class LSPClient {
   private diagnosticSubscribers: Set<DiagnosticUpdateCallback> = new Set();
   private rellLspVersion?: string 
 
+  private languageId: string = "rell"
+
   constructor(lspVersion?: string) {
     this.rellLspVersion = lspVersion;
   }
@@ -352,7 +354,7 @@ export class LSPClient {
     }
   }
 
-  async openDocument(uri: string, text: string, languageId: string): Promise<void> {
+  async openDocument(uri: string, text: string): Promise<void> {
     // Check if initialized, but don't auto-initialize
     if (!this.initialized) {
       throw new Error("LSP client not initialized. Please call start_lsp first.");
@@ -386,7 +388,7 @@ export class LSPClient {
     this.sendNotification("textDocument/didOpen", {
       textDocument: {
         uri,
-        languageId,
+        languageId: this.languageId,
         version: 1,
         text
       }
@@ -405,6 +407,23 @@ export class LSPClient {
   // Get a list of all open documents
   getOpenDocuments(): string[] {
     return Array.from(this.openedDocuments);
+  }
+  // save document
+  async saveDocument(uri: string, text: string): Promise<void> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    if (this.openedDocuments.has(uri)) {
+      debug(`Saving document: ${uri}`);
+      this.sendNotification("textDocument/didSave", {
+        textDocument: {
+          uri,
+          version: this.documentVersions.get(uri) || 1,
+          text
+        }
+      });
+    }
   }
 
   // Close a document
