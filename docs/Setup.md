@@ -1,0 +1,215 @@
+# Setup & Local Development
+
+## Prerequisites
+
+### Required Tools and Versions
+
+**Node.js v16 or later**
+**NPM (Node Package Manager)**
+**Java JDK (Java Development Kit) v21 or later**
+
+### Optional Tools
+
+**MCP Inspector** (Optional, for debugging)
+- **Purpose:** Web-based tool for testing and debugging MCP servers
+- **Installation:** `npm install -g @modelcontextprotocol/inspector` or use `npx`
+- **Documentation:** https://www.npmjs.com/package/@modelcontextprotocol/inspector
+
+## Step-by-Step Setup Instructions
+
+### 1. Clone the Repository
+
+```bash
+git clone https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp
+cd chromia-lsp-mcp
+```
+
+### 3. Install Dependencies
+
+```bash
+npm install
+```
+
+### 4. Build the Project
+
+```bash
+npm run build
+```
+
+**What this does:**
+- Compiles TypeScript source files to JavaScript
+- Outputs compiled files to `dist/` directory
+- Creates `dist/index.js` as the main entry point
+
+## Running Locally
+
+### Option 1: Run from Built Files (Recommended)
+
+**Run the MCP server:**
+```bash
+node dist/index.js
+```
+
+**What this does:**
+- Starts MCP server in stdio mode
+- Reads from `stdin` and writes to `stdout`
+- Waits for MCP protocol messages
+- LSP server is not started automatically - must be started via `start_lsp` tool
+
+**Note:** In stdio mode, the server reads from `stdin` and writes to `stdout`. This is typically used when the MCP client launches the server as a subprocess.
+
+**To test with a specific Rell LSP version:**
+```bash
+node dist/index.js 0.8.8
+```
+
+This will use Rell LSP version 0.8.8 (or download it if not cached).
+
+### Option 2: Run via NPM Scripts
+
+**Run:**
+```bash
+node dist/index.js
+```
+
+**Watch mode (for development):**
+```bash
+npm run watch
+```
+
+This runs TypeScript compiler in watch mode, automatically recompiling on file changes.
+
+### Running from NPM Package (After Publishing)
+
+```bash
+npx chromia-lsp-mcp
+```
+
+**Or with version:**
+```bash
+npx chromia-lsp-mcp 0.8.8
+```
+
+## Testing
+
+### Running Tests
+
+```bash
+npm run test
+```
+
+**What this does:**
+- Runs integration tests in `test/rell-lsp.test.js`
+- Tests LSP server download, initialization, and basic LSP operations
+- Uses test Rell project in `test/rell-project/`
+
+### Test Coverage
+
+The tests verify the following functionality:
+
+- Automatic downloading and initialization of the Rell LSP server
+- Opening Rell files for analysis
+- Getting hover information for functions and types
+- Getting code completion suggestions
+- Getting diagnostic error messages
+- Getting code actions for errors
+
+### Manual Testing
+
+**1. Use MCP Inspector (Recommended for tool testing)**
+
+**In stdio mode:**
+1. Start server: `node dist/index.js`
+2. In another terminal, start inspector:
+   ```bash
+   npx @modelcontextprotocol/inspector
+   ```
+3. Open browser to URL shown by inspector (usually `http://localhost:5173`)
+4. In the MCP Inspector interface:
+   - Choose the transport type to be **stdio**
+   - Write the command: `node /path/to/chromia-lsp-mcp/dist/index.js`
+   - Press **Connect**
+5. Test tools in the web interface:
+   - Call `start_lsp` with a root directory
+   - Call `open_document` with a Rell file path
+   - Call `get_diagnostics` to see errors/warnings
+   - Call `get_info_on_location` with line/column
+   - Call `get_completions` with line/column
+
+**2. Test with actual MCP client**
+
+Configure your MCP client (Claude Desktop, etc.) to use local server:
+
+**Claude Desktop:**
+1. Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%/Claude/claude_desktop_config.json` (Windows)
+2. Add configuration:
+   ```json
+   {
+     "mcpServers": {
+       "chromia-lsp-mcp": {
+         "command": "node",
+         "args": ["/absolute/path/to/chromia-lsp-mcp/dist/index.js"]
+       }
+     }
+   }
+   ```
+
+## How to Use the LSP Server
+
+### Starting the LSP Server
+
+The `start_lsp` tool should be called before using any LSP functionality. Ask AI assistant to call the `start_lsp` tool with your project root directory to ensure proper initialization.
+
+**How to use:** For example:
+
+- **In Claude Desktop or Claude Code:** Simply ask: "Start the Rell LSP server with root directory `/path/to/your/project`" or "Use the start_lsp tool with root_dir `/path/to/your/project`"
+
+The AI assistant will automatically call the `start_lsp` tool with your specified root directory or the current directory when you make this request.
+
+## Development Workflow
+
+### Making Code Changes
+
+1. **Edit code** in `src/` directory
+2. **Rebuild** (if not using watch mode): `npm run build`
+3. **Test changes** using MCP Inspector or MCP client
+4. **Run tests:** `npm test`
+
+### Adding New Tools
+
+1. **Define tool schema** in `src/types/index.ts` (Zod schema)
+2. **Add tool handler** in `src/tools/index.ts`
+3. **Add tool definition** in `getToolDefinitions()` function
+4. **Rebuild:** `npm run build`
+5. **Test** with MCP Inspector
+
+### Adding New Resources
+
+1. **Add resource handler** in `src/resources/index.ts`
+2. **Add resource template** in `getResourceTemplates()` function
+3. **Add subscription handler** (if resource supports subscriptions)
+4. **Rebuild:** `npm run build`
+5. **Test** with MCP Inspector
+
+### Debugging
+
+**Enable debug logging:**
+- Use `set_log_level` tool with level `debug`
+- Or set `LOG_LEVEL=debug` environment variable before starting server
+
+**Use MCP Inspector:**
+- Provides web interface to test tools
+- Shows request/response details
+- Helps identify parameter issues
+
+**Check server logs:**
+- Server logs all tool requests and responses
+- Look for error messages in console output
+- Check for exception stack traces
+
+## Additional Development Resources
+
+- **MCP Protocol Specification:** https://modelcontextprotocol.io/
+- **MCP TypeScript SDK:** https://github.com/modelcontextprotocol/typescript-sdk
+- **Language Server Protocol Specification:** https://microsoft.github.io/language-server-protocol/
+- **Rell Documentation:** https://docs.chromia.com/rell/
