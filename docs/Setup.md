@@ -5,14 +5,14 @@
 ### Required Tools and Versions
 
 **Node.js v16 or later**
-**NPM (Node Package Manager)**
+**pnpm (Package Manager) v8 or later**
 **Java JDK (Java Development Kit) v21 or later**
 
 ### Optional Tools
 
 **MCP Inspector** (Optional, for debugging)
 - **Purpose:** Web-based tool for testing and debugging MCP servers
-- **Installation:** `npm install -g @modelcontextprotocol/inspector` or use `npx`
+- **Installation:** `pnpm install -g @modelcontextprotocol/inspector` or use `pnpm exec`
 - **Documentation:** https://www.npmjs.com/package/@modelcontextprotocol/inspector
 
 ## Step-by-Step Setup Instructions
@@ -27,13 +27,13 @@ cd chromia-lsp-mcp
 ### 3. Install Dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 4. Build the Project
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 **What this does:**
@@ -74,7 +74,7 @@ node dist/index.js
 
 **Watch mode (for development):**
 ```bash
-npm run watch
+pnpm run watch
 ```
 
 This runs TypeScript compiler in watch mode, automatically recompiling on file changes.
@@ -82,12 +82,12 @@ This runs TypeScript compiler in watch mode, automatically recompiling on file c
 ### Running from NPM Package (After Publishing)
 
 ```bash
-npx chromia-lsp-mcp
+pnpm exec chromia-lsp-mcp
 ```
 
 **Or with version:**
 ```bash
-npx chromia-lsp-mcp 0.8.8
+pnpm exec chromia-lsp-mcp 0.8.8
 ```
 
 ## Testing
@@ -95,7 +95,7 @@ npx chromia-lsp-mcp 0.8.8
 ### Running Tests
 
 ```bash
-npm run test
+pnpm run test
 ```
 
 **What this does:**
@@ -122,7 +122,7 @@ The tests verify the following functionality:
 1. Start server: `node dist/index.js`
 2. In another terminal, start inspector:
    ```bash
-   npx @modelcontextprotocol/inspector
+   pnpm exec @modelcontextprotocol/inspector
    ```
 3. Open browser to URL shown by inspector (usually `http://localhost:5173`)
 4. In the MCP Inspector interface:
@@ -156,31 +156,61 @@ Configure your MCP client (Claude Desktop, etc.) to use local server:
 
 ## How to Use the LSP Server
 
-### Starting the LSP Server
+### Using the MCP Server
 
-The `start_lsp` tool should be called before using any LSP functionality. Ask AI assistant to call the `start_lsp` tool with your project root directory to ensure proper initialization.
+Once the Chromia-lsp-mcp MCP server is configured in your MCP client (Claude Desktop, Claude Code, etc.), you simply need to tell the AI assistant to use the Chromia-lsp-mcp MCP server. The AI assistant will automatically use the available LSP tools as needed.
 
-**How to use:** For example:
+**If you need to reference a different project directory** (other than the current working directory), you can specify the root directory path when asking the AI assistant to start the LSP server. For example:
 
-- **In Claude Desktop or Claude Code:** Simply ask: "Start the Rell LSP server with root directory `/path/to/your/project`" or "Use the start_lsp tool with root_dir `/path/to/your/project`"
+- "Start the Rell LSP server with root directory `/path/to/your/project`"
+- "Use the start_lsp tool with root_dir `/path/to/your/project`"
 
-The AI assistant will automatically call the `start_lsp` tool with your specified root directory or the current directory when you make this request.
+The AI assistant will automatically call the `start_lsp` tool with your specified root directory when needed.
+
+### Using with Chromia-mcp Server for Enhanced Code Assistance
+
+For better code refactoring and suggestions from the AI, it is recommended to use Chromia-lsp-mcp together with the **Chromia-mcp server**, which contains documentation RAG (Retrieval-Augmented Generation). 
+
+The Chromia-mcp server provides:
+- **Documentation RAG** - Access to comprehensive Rell documentation and examples
+- **Enhanced context** - Better understanding of Rell language patterns and best practices
+- **Improved suggestions** - More accurate code refactoring recommendations based on documentation
+
+When both MCP servers are configured, the AI assistant can:
+1. Use Chromia-lsp-mcp for real-time code analysis, diagnostics, and LSP features
+2. Use Chromia-mcp for documentation lookups and RAG-based suggestions
+3. Combine both sources of information for more accurate and context-aware code assistance
+
+**Configuration:** Add both servers to your MCP client configuration:
+```json
+{
+  "mcpServers": {
+    "chromia-lsp-mcp": {
+      "command": "node",
+      "args": ["/absolute/path/to/chromia-lsp-mcp/dist/index.js"]
+    },
+    "chromia-mcp": {
+      "url": "mcp.chromia.dev"
+    }
+  }
+}
+```
 
 ## Development Workflow
 
 ### Making Code Changes
 
 1. **Edit code** in `src/` directory
-2. **Rebuild** (if not using watch mode): `npm run build`
+2. **Rebuild** (if not using watch mode): `pnpm run build`
 3. **Test changes** using MCP Inspector or MCP client
-4. **Run tests:** `npm test`
+4. **Run tests:** `pnpm test`
 
 ### Adding New Tools
 
 1. **Define tool schema** in `src/types/index.ts` (Zod schema)
 2. **Add tool handler** in `src/tools/index.ts`
 3. **Add tool definition** in `getToolDefinitions()` function
-4. **Rebuild:** `npm run build`
+4. **Rebuild:** `pnpm run build`
 5. **Test** with MCP Inspector
 
 ### Adding New Resources
@@ -188,7 +218,7 @@ The AI assistant will automatically call the `start_lsp` tool with your specifie
 1. **Add resource handler** in `src/resources/index.ts`
 2. **Add resource template** in `getResourceTemplates()` function
 3. **Add subscription handler** (if resource supports subscriptions)
-4. **Rebuild:** `npm run build`
+4. **Rebuild:** `pnpm run build`
 5. **Test** with MCP Inspector
 
 ### Debugging
