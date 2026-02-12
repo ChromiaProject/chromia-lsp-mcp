@@ -13,9 +13,9 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepare": "npm run build",
+    "prepare": "pnpm run build",
     "watch": "tsc --watch",
-    "test": "npm run test:rell",
+    "test": "pnpm run test:rell",
     "test:rell": "node test/rell-lsp.test.js"
   },
   "dependencies": {

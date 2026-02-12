@@ -25,10 +25,10 @@ The server automatically downloads and manages the Rell LSP server, eliminating 
 
 ### Option 1: Install from NPM (Recommended)
 
-Install the package globally using npm:
+Install the package globally using pnpm:
 
 ```sh
-npm install @chromia/chromia-lsp-mcp -g
+pnpm install -g @chromia/chromia-lsp-mcp
 ```
 
 ### Option 2: Build from Source
@@ -43,13 +43,13 @@ npm install @chromia/chromia-lsp-mcp -g
 2. Install dependencies:
 
    ```sh
-   npm install
+   pnpm install
    ```
 
 3. Build the MCP server:
 
    ```sh
-   npm run build
+   pnpm run build
    ```
 
 ## Configuration
@@ -62,8 +62,9 @@ After installation, you need to configure Claude to use the MCP server.
 {
   "mcpServers": {
     "lsp-mcp": {
-      "command": "npx",
+      "command": "pnpm",
       "args": [
+        "exec",
         "chromia-lsp-mcp",
         "0.8.8" // optional Rell LSP version
       ]
@@ -129,7 +130,7 @@ The project includes integration tests for the Rell LSP support. These tests ver
 To run the Rell LSP tests:
 
 ```bash
-npm test
+pnpm test
 ```
 
 ### Test Coverage
