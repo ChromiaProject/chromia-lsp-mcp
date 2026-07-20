@@ -1,5 +1,7 @@
 dist-newstyle/
 node_modules/
 dist/
+.npm/
+.pnpm-store/
 .mcp.json
 .DS_Store
