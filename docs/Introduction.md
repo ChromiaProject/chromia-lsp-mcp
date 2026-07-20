@@ -40,7 +40,7 @@ LSP MCP Server for Rell enables AI assistants to interact with Rell code by:
 
 **1. Rell Language Server (LSP Server)**
 - **Role:** Provides language-specific features (hover, completions, diagnostics, code actions) for Rell code
-- **Source:** GitLab Maven registry (`net.postchain/rell/toolbox/rell-language-server`)
+- **Source:** GitLab Maven registry (`net.postchain.rell:rell-toolbox-language-server`)
 - **Relationship:** LSP MCP Server downloads and spawns the Rell LSP server as a Java subprocess, communicating via LSP protocol (JSON-RPC over stdio)
 - **Critical Dependency:** If Rell LSP server is unavailable or fails to start, all LSP functionality will fail. The server automatically downloads the LSP JAR if not cached locally.
 

@@ -66,7 +66,7 @@ After installation, you need to configure Claude to use the MCP server.
       "args": [
         "exec",
         "chromia-lsp-mcp",
-        "0.8.8" // optional Rell LSP version
+        "0.16.1" // optional Rell LSP version
       ]
     }
   }
@@ -89,7 +89,7 @@ After installation, you need to configure Claude to use the MCP server.
 > **Parameters** :
 >
 > - `Rell LSP version`:
->   optional argument to explicitly set which Rell LSP version it should be used, otherwise, it will look for cached LSP jars, if not found it will download the latest version e.g: `0.8.8`
+>   optional argument to explicitly set which Rell LSP version it should be used, otherwise, it will look for cached LSP jars, if not found it will download the latest version e.g: `0.16.1`
 
 ## Features
 

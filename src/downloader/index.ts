@@ -6,17 +6,17 @@ import { pipeline } from 'stream/promises';
 import { XMLParser } from 'fast-xml-parser';
 import { debug } from "./../logging/index.js";
 
-const GROUP_ID = 'net/postchain/rell/toolbox';
-const ARTIFACT_ID = 'rell-language-server';
-const PROJECT_ID = '51303085';
+const GROUP_ID = 'net.postchain.rell';
+const ARTIFACT_ID = 'rell-toolbox-language-server';
+const PROJECT_ID = '32802097';
 const GITLAB_MAVEN_URL = `https://gitlab.com/api/v4/projects/${PROJECT_ID}/packages/maven`;
 const groupPath = GROUP_ID.replace(/\./g, '/');
 
 const xmlParser = new XMLParser();
 const JAR_DIR = join(homedir(), '.chromia', 'lsp-mcp');
 
-const getJarFileName = (version: string): string => 
-    `rell-language-server-${version}-all.jar`;
+const getJarFileName = (version: string): string =>
+    `rell-toolbox-language-server-${version}-all.jar`;
 
 const getJarFilePath = (version: string): string => 
     join(JAR_DIR, getJarFileName(version));
@@ -28,11 +28,12 @@ const fetchLatestVersion = async (): Promise<string> => {
         const response = await axios.get(versionsUrl);
         const parsed = xmlParser.parse(response.data);
         
-        if (!parsed.metadata?.versioning?.latest) {
+        // Prefer <release> over <latest>: <latest> may point to a -SNAPSHOT version
+        const latestVersion = parsed.metadata?.versioning?.release
+            ?? parsed.metadata?.versioning?.latest;
+        if (!latestVersion) {
             throw new Error('Invalid maven-metadata.xml format: latest version not found');
         }
-        
-        const latestVersion = parsed.metadata.versioning.latest;
         debug(`Found latest version: ${latestVersion}`);
         return latestVersion;
     } catch (error: any) {
@@ -48,7 +49,7 @@ const downloadJarFile = async (version: string): Promise<string> => {
     const tempFilePath = `${filePath}.download`;
     const downloadUrl = `${GITLAB_MAVEN_URL}/${groupPath}/${ARTIFACT_ID}/${version}/${getJarFileName(version)}`;
     
-    debug(`Downloading rell-language-server ${version} from GitLab...`);
+    debug(`Downloading rell-toolbox-language-server ${version} from GitLab...`);
     debug(`URL: ${downloadUrl}`);
     
     try {
@@ -93,13 +94,13 @@ export const getLocalVersions = async (): Promise<string[]> => {
     }
     
     const files = await fs.readdir(JAR_DIR);
-    const jarFiles = files.filter(file => 
-        file.startsWith('rell-language-server-') && 
+    const jarFiles = files.filter(file =>
+        file.startsWith('rell-toolbox-language-server-') &&
         file.endsWith('.jar')
     );
-    
+
     return jarFiles
-        .map(file => file.match(/rell-language-server-(.+)-all\.jar/)?.[1] || null)
+        .map(file => file.match(/rell-toolbox-language-server-(.+)-all\.jar/)?.[1] || null)
         .filter((version): version is string => version !== null);
 };
 

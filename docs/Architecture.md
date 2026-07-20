@@ -189,7 +189,7 @@ LSP MCP Server for Rell follows a modular architecture with separation between p
 
 **Caching:**
 - JAR files cached in `~/.chromia/lsp-mcp/`
-- Filename format: `rell-language-server-{version}-all.jar`
+- Filename format: `rell-toolbox-language-server-{version}-all.jar`
 - Cache persists across sessions
 
 **Why it matters:** Eliminates manual LSP server setup. Automatically manages dependencies.
