@@ -60,10 +60,10 @@ node dist/index.js
 
 **To test with a specific Rell LSP version:**
 ```bash
-node dist/index.js 0.16.1
+node dist/index.js 0.16.2
 ```
 
-This will use Rell LSP version 0.16.1 (or download it if not cached).
+This will use Rell LSP version 0.16.2 (or download it if not cached).
 
 ### Option 2: Run via NPM Scripts
 
@@ -87,7 +87,7 @@ pnpm exec chromia-lsp-mcp
 
 **Or with version:**
 ```bash
-pnpm exec chromia-lsp-mcp 0.16.1
+pnpm exec chromia-lsp-mcp 0.16.2
 ```
 
 ## Testing
