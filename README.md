@@ -21,75 +21,54 @@ The LSP MCP Server for Rell enables AI agents like Claude to query and analyze R
 
 The server automatically downloads and manages the Rell LSP server, eliminating manual setup steps.
 
+## Requirements
+
+- Node.js 20 or later or Bun
+- Java 21 or later on your `PATH`, since the Rell language server is a JVM program
+
 ## Installation
 
-### Option 1: Install from NPM (Recommended)
+The MCP server is published to npm as [`@chromia/chromia-lsp-mcp`](https://www.npmjs.com/package/@chromia/chromia-lsp-mcp).
 
-Install the package globally using pnpm:
+### Claude Code
 
 ```sh
-pnpm install -g @chromia/chromia-lsp-mcp
+claude mcp add chromia-lsp -- npx -y @chromia/chromia-lsp-mcp
 ```
 
-### Option 2: Build from Source
+### Copilot in VS Code
 
-1. Clone this repository:
+```sh
+code --add-mcp "{\"name\":\"chromia-lsp\",\"command\":\"npx\",\"args\":[\"-y\",\"@chromia/chromia-lsp-mcp\"]}"
+```
 
-   ```sh
-   git clone https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp
-   cd chromia-lsp-mcp
-   ```
+### Cursor and other editors
 
-2. Install dependencies:
-
-   ```sh
-   pnpm install
-   ```
-
-3. Build the MCP server:
-
-   ```sh
-   pnpm run build
-   ```
-
-## Configuration
-
-After installation, you need to configure Claude to use the MCP server.
-
-### Claude Configuration for NPM Installation
+Add the server to the editor's MCP config, which in Cursor's case is `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "lsp-mcp": {
-      "command": "pnpm",
-      "args": [
-        "exec",
-        "chromia-lsp-mcp",
-        "0.16.2" // optional Rell LSP version
-      ]
+    "chromia-lsp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@chromia/chromia-lsp-mcp"]
     }
   }
 }
 ```
 
-### Claude Configuration for Local Build
+Some editors use `servers` instead of `mcpServers`; the entry itself is the same either way.
 
-```json
-{
-  "mcpServers": {
-    "chromia-lsp-mcp": {
-      "command": "node",
-      "args": ["/path/to/this/project/dist/index.js"]
-    }
-  }
-}
-```
+### Bun and version pinning
 
-> **Parameters** :
->
-> - `Rell LSP version`:
->   optional argument to explicitly set which Rell LSP version it should be used, otherwise, it will look for cached LSP jars, if not found it will download the latest version e.g: `0.16.2`
+To run on Bun, use `"command": "bunx"` and drop the `-y` argument.
+
+Two versions can be pinned independently: the MCP server the usual npm way, and the Rell LSP it drives as a positional argument, as in `"args": ["-y", "@chromia/chromia-lsp-mcp@0.0.4", "0.16.2"]`. Without the latter, the newest published Rell LSP is downloaded and cached.
+
+### Building from source
+
+Only needed to work on the server itself. See [Setup & Development](./docs/Setup.md).
 
 ## Features
 
@@ -112,89 +91,41 @@ After installation, you need to configure Claude to use the MCP server.
 - `lsp-hover://` resources for retrieving hover information at specific file locations
 - `lsp-completions://` resources for getting code completion suggestions at specific positions
 
-### Additional Features
-
-- Comprehensive logging system with multiple severity levels
-- Colorized console output for better readability
-- Runtime-configurable log level
-- Detailed error handling and reporting
-- Automatic LSP server download and caching
-- Simple command-line interface
-
-## Testing
-
-The project includes integration tests for the Rell LSP support. These tests verify that the LSP-MCP server correctly handles LSP operations like hover information, completions, diagnostics, and code actions with the Rell language server.
-
-### Running Tests
-
-To run the Rell LSP tests:
-
-```bash
-pnpm test
-```
-
-### Test Coverage
-
-The tests verify the following functionality:
-
-- Automatic downloading and initialization of the Rell LSP server
-- Opening Rell files for analysis
-- Getting hover information for functions and types
-- Getting code completion suggestions
-- Getting diagnostic error messages
-- Getting code actions for errors
-
 ## Usage
 
-Run the MCP server directly with Node.js:
+Your MCP client launches the server; you never run it by hand. Ask the assistant to work on Rell code and it drives the tools itself, starting with `start_lsp`, which needs a project root. If it picks the wrong directory, name the right one:
 
-```bash
-node dist/index.js
-```
+> Start the Rell LSP server with root directory /path/to/my/dapp
 
-The server automatically downloads and manages the Rell LSP server JAR file, so no additional configuration is needed. The Rell LSP server will be downloaded to `~/.chromia/lsp-mcp/` on first use.
+The Rell language server is downloaded to `~/.chromia/lsp-mcp/` the first time it starts and reused afterwards.
 
 ### Logging
 
-The server includes a comprehensive logging system with 8 severity levels:
+The server reports what it is doing to the client as MCP log notifications. To make it more verbose, ask the assistant to set the log level to `debug`, or start it that way from the client config:
 
-- `debug`: Detailed information for debugging purposes
-- `info`: General informational messages about system operation
-- `notice`: Significant operational events
-- `warning`: Potential issues that might need attention
-- `error`: Error conditions that affect operation but don't halt the system
-- `critical`: Critical conditions requiring immediate attention
-- `alert`: System is in an unstable state
-- `emergency`: System is unusable
+```json
+{
+  "mcpServers": {
+    "chromia-lsp": {
+      "command": "npx",
+      "args": ["-y", "@chromia/chromia-lsp-mcp"],
+      "env": { "LOG_LEVEL": "debug" }
+    }
+  }
+}
+```
 
-By default, logs are sent to:
-
-1. Console output with color-coding for better readability
-2. MCP notifications to the client (via the `notifications/message` method)
-
-#### Viewing Debug Logs
-
-For detailed debugging, you can:
-
-1. Use the `claude --mcp-debug` flag when running Claude to see all MCP traffic between Claude and the server:
-
-   ```
-   claude --mcp-debug
-   ```
-
-2. Ask your AI assistant to change the log level at runtime using the `set_log_level` tool. For example: "Set the log level to debug" or "Use the set_log_level tool with level debug"
-
-   The AI assistant will automatically call the `set_log_level` tool with the specified log level when you make this request.
-
-The default log level is `info`, which shows moderate operational detail while filtering out verbose debug messages.
+In Claude Code, `claude --mcp-debug` additionally shows the raw traffic between client and server.
 
 ## Troubleshooting
 
-- **If the server fails to start**, make sure Node.js is installed and in your PATH
-- **If LSP server fails to start**, ensure Java JDK is installed and in your PATH
-- Check the log file (if configured) for detailed error messages
+If the server exits with `Startup failed: Java JDK + required`, it could not find Java. It looks only at your `PATH` (via `which java`, or `where java` on Windows) and, currently, ignores `JAVA_HOME`. Check that `java -version` reports 21 or later. Editors launched from the desktop rather than a terminal do not inherit your shell's `PATH`, so a JDK installed through a version manager such as SDKMAN or jenv is often invisible to them; either install a system-wide JDK or start the client from a terminal.
 
-For more detailed troubleshooting information, see [Setup & Development](./docs/Setup.md).
+`Version 0.16.x not found in GitLab registry` means the pinned Rell LSP version does not exist. Drop the version argument to take the latest release.
+
+`LSP server not started. Call start_lsp first with a root directory.` is expected right after the client connects. Ask the assistant to start the LSP server on your project root.
+
+If the language server itself misbehaves, delete `~/.chromia/lsp-mcp/`; the jar is downloaded again on the next start.
 
 ## License
 
@@ -202,6 +133,4 @@ MIT License
 
 ## Acknowledgments
 
-- [@Tritlo/lsp-mcp](https://github.com/Tritlo/lsp-mcp) for the original implementation
-- Anthropic for the Model Context Protocol specification
-- Microsoft for the Language Server Protocol specification
+Built on [@Tritlo/lsp-mcp](https://github.com/Tritlo/lsp-mcp), the original LSP-over-MCP implementation.
