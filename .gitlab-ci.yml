@@ -92,6 +92,25 @@ deploy-npm-dry-run:
     - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
   when: manual
 
+deploy-npm-gitlab:
+  stage: release
+  <<: *install_dependencies
+  script:
+    - |
+      PACKAGE_VERSION=$(node -p "require('./package.json').version")
+      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
+        echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
+        exit 1
+      fi
+    - pnpm config set @chromia:registry "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
+    - pnpm config set "${CI_API_V4_URL#https:}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken" "${CI_JOB_TOKEN}"
+    - pnpm pack --dry-run
+    # --no-git-checks: tag pipelines run on a detached HEAD, which pnpm's branch check rejects
+    - pnpm publish --no-git-checks
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
+  when: manual
+
 release-patch:
   extends: .release
   stage: release
