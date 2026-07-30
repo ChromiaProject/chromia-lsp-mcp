@@ -79,15 +79,15 @@ pnpm run watch
 
 This runs TypeScript compiler in watch mode, automatically recompiling on file changes.
 
-### Running from NPM Package (After Publishing)
+### Running the Published Package
 
 ```bash
-pnpm exec chromia-lsp-mcp
+npx -y @chromia/chromia-lsp-mcp
 ```
 
 **Or with version:**
 ```bash
-pnpm exec chromia-lsp-mcp 0.16.2
+npx -y @chromia/chromia-lsp-mcp 0.16.2
 ```
 
 ## Testing
@@ -226,6 +226,12 @@ When both MCP servers are configured, the AI assistant can:
 **Enable debug logging:**
 - Use `set_log_level` tool with level `debug`
 - Or set `LOG_LEVEL=debug` environment variable before starting server
+
+**Log levels** (in increasing severity, default `info`):
+
+`debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`
+
+Messages at or above the current level go to the console and to the client as `notifications/message`.
 
 **Use MCP Inspector:**
 - Provides web interface to test tools
