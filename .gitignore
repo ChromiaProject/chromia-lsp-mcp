@@ -5,3 +5,4 @@ dist/
 .pnpm-store/
 .mcp.json
 .DS_Store
+.idea
