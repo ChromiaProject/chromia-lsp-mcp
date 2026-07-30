@@ -81,11 +81,30 @@ This runs TypeScript compiler in watch mode, automatically recompiling on file c
 
 ### Running the Published Package
 
+The package is published to this project's GitLab npm registry (not npmjs.org), so first map the `@chromia` scope to it:
+
+```bash
+npm config set @chromia:registry https://gitlab.com/api/v4/projects/74441198/packages/npm/
+```
+
+This is a one-time step: it writes to `~/.npmrc`, which npx, pnpm, and bun all read. The project is public, so no auth token is needed.
+
+**npx:**
 ```bash
 npx -y @chromia/chromia-lsp-mcp
 ```
 
-**Or with version:**
+**pnpm:**
+```bash
+pnpm dlx @chromia/chromia-lsp-mcp
+```
+
+**bunx:**
+```bash
+bunx @chromia/chromia-lsp-mcp
+```
+
+**Or with a specific Rell LSP version:**
 ```bash
 npx -y @chromia/chromia-lsp-mcp 0.16.2
 ```
