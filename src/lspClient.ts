@@ -1,12 +1,13 @@
-import { spawn, execSync } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import { LSPMessage, DiagnosticUpdateCallback, LoggingLevel } from "./types/index.js";
 import { debug, info, notice, warning, log, logError } from "./logging/index.js";
-import { getLspServerPath } from "./downloader/index.js";
+import { resolveLspServer, LspServerLaunch } from "./downloader/index.js";
 
 export class LSPClient {
   private process: any;
-  private buffer: string = "";
+  private buffer: Buffer = Buffer.alloc(0);
+  private launchPromise: Promise<LspServerLaunch> | null = null;
   private messageQueue: LSPMessage[] = [];
   private nextId: number = 1;
   private responsePromises: Map<string | number, { resolve: Function; reject: Function }> = new Map();
@@ -23,17 +24,28 @@ export class LSPClient {
 
   constructor(lspVersion?: string) {
     this.rellLspVersion = lspVersion;
+    this.prefetchServer();
+  }
+
+  // Kick off the runtime/JAR download or cache lookup as soon as the client is created,
+  // so the first start_lsp call doesn't pay for it inside its request timeout.
+  private prefetchServer(): void {
+    const promise = resolveLspServer(this.rellLspVersion);
+    this.launchPromise = promise;
+    promise.catch((error) => {
+      warning(`Failed to prefetch Rell LSP server: ${error instanceof Error ? error.message : String(error)}`);
+      this.launchPromise = null; // retry on next startProcess
+    });
   }
 
   private async startProcess(): Promise<void> {
     info(`Starting RELL LSP client`);
 
     try {
-      const lspServerPath = await getLspServerPath(this.rellLspVersion);
-      const javaPath = this.findJavaPath();
-      if (!javaPath) throw new Error('Java JDK + required');
+      const launch = await (this.launchPromise ?? resolveLspServer(this.rellLspVersion));
+      debug(`Launching ${launch.jarPath} with ${launch.bundled ? 'bundled runtime' : 'system Java'} at ${launch.javaPath}`);
 
-      this.process = spawn(javaPath, ['-jar', lspServerPath], { stdio: "pipe" });
+      this.process = spawn(launch.javaPath, ['-jar', launch.jarPath], { stdio: "pipe" });
 
       this.process.stdout.on("data", this.handleData.bind(this));
       this.process.stderr.on("data", (data: Buffer) => debug(`LSP: ${data}`));
@@ -43,72 +55,57 @@ export class LSPClient {
     }
   }
 
-  private findJavaPath(): string | null {
-    try {
-      if (process.platform === 'win32') {
-        return execSync('where java', { encoding: 'utf8' }).trim().split('\n')[0];
-      } else {
-        return execSync('which java', { encoding: 'utf8' }).trim();
-      }
-    } catch (error) {
-      debug('Java not found in PATH: ' + (error instanceof Error ? error.message : String(error)));
-      return null;
-    }
-  }
-
   private handleData(data: Buffer): void {
     // Append new data to buffer
-    this.buffer += data.toString();
+    this.buffer = Buffer.concat([this.buffer, data]);
 
     // Implement a safety limit to prevent excessive buffer growth
     const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
     if (this.buffer.length > MAX_BUFFER_SIZE) {
       logError(`Buffer size exceeded ${MAX_BUFFER_SIZE} bytes, clearing buffer to prevent memory issues`);
-      this.buffer = this.buffer.substring(this.buffer.length - MAX_BUFFER_SIZE);
+      this.buffer = this.buffer.subarray(this.buffer.length - MAX_BUFFER_SIZE);
     }
 
-    // Process complete messages
+    // Process complete messages. Content-Length is counted in bytes, so all slicing
+    // happens on the raw Buffer; decoding to string only happens per complete message.
     while (true) {
-      // Look for the standard LSP header format - this captures the entire header including the \r\n\r\n
-      const headerMatch = this.buffer.match(/^Content-Length: (\d+)\r\n\r\n/);
-      if (!headerMatch) break;
+      // The server may write non-LSP output to stdout (e.g. the kotlin-logging banner
+      // printed before the first message), so the header is searched for anywhere in
+      // the buffer and anything before it is discarded.
+      const headerStart = this.buffer.indexOf("Content-Length:");
+      if (headerStart === -1) break;
+      if (headerStart > 0) {
+        const junk = this.buffer.subarray(0, headerStart).toString().trim();
+        if (junk) debug(`Skipping non-LSP output from server: ${junk}`);
+        this.buffer = this.buffer.subarray(headerStart);
+      }
 
-      const contentLength = parseInt(headerMatch[1], 10);
-      const headerEnd = headerMatch[0].length;
+      const headerEnd = this.buffer.indexOf("\r\n\r\n");
+      if (headerEnd === -1) break; // Header not complete yet
+
+      const header = this.buffer.subarray(0, headerEnd).toString();
+      const lengthMatch = header.match(/Content-Length: *(\d+)/i);
+      const bodyStart = headerEnd + 4;
+      if (!lengthMatch) {
+        logError(`Malformed LSP header, skipping: ${header}`);
+        this.buffer = this.buffer.subarray(bodyStart);
+        continue;
+      }
+
+      const contentLength = parseInt(lengthMatch[1], 10);
 
       // Prevent processing unreasonably large messages
       if (contentLength > MAX_BUFFER_SIZE) {
         logError(`Received message with content length ${contentLength} exceeds maximum size, skipping`);
-        this.buffer = this.buffer.substring(headerEnd + contentLength);
+        this.buffer = this.buffer.subarray(Math.min(bodyStart + contentLength, this.buffer.length));
         continue;
       }
 
       // Check if we have the complete message (excluding the header)
-      if (this.buffer.length < headerEnd + contentLength) break; // Message not complete yet
+      if (this.buffer.length < bodyStart + contentLength) break; // Message not complete yet
 
-      // Extract the message content - using exact content length without including the header
-      let content = this.buffer.substring(headerEnd, headerEnd + contentLength);
-      // Make the parsing more robust by ensuring content ends with a closing brace
-      if (content[content.length - 1] !== '}') {
-        debug("Content doesn't end with '}', adjusting...");
-        const lastBraceIndex = content.lastIndexOf('}');
-        if (lastBraceIndex !== -1) {
-          const actualContentLength = lastBraceIndex + 1;
-          debug(`Adjusted content length from ${contentLength} to ${actualContentLength}`);
-          content = content.substring(0, actualContentLength);
-          // Update buffer position based on actual content length
-          this.buffer = this.buffer.substring(headerEnd + actualContentLength);
-        } else {
-          debug("No closing brace found, using original content length");
-          // No closing brace found, use original approach
-          this.buffer = this.buffer.substring(headerEnd + contentLength);
-        }
-      } else {
-        debug("Content ends with '}', no adjustment needed");
-        // Content looks good, remove precisely this processed message from buffer
-        this.buffer = this.buffer.substring(headerEnd + contentLength);
-      }
-
+      const content = this.buffer.subarray(bodyStart, bodyStart + contentLength).toString();
+      this.buffer = this.buffer.subarray(bodyStart + contentLength);
 
       // Parse the message and add to queue
       try {
@@ -190,8 +187,10 @@ export class LSPClient {
 
           log(level as any, `Received ${diagnostics.length} diagnostics for ${uri}`);
 
-          // Store diagnostics, replacing any previous ones for this URI
-          this.documentDiagnostics.set(uri.replace('file:/', 'file:///'), diagnostics);
+          // Store diagnostics, replacing any previous ones for this URI.
+          // The Rell server emits short-form "file:/path" URIs while createFileUri
+          // produces "file:///path"; normalize only that short form.
+          this.documentDiagnostics.set(uri.replace(/^file:\/(?!\/)/, 'file:///'), diagnostics);
 
           // Notify all subscribers about this update
           this.notifyDiagnosticUpdate(uri, diagnostics);
@@ -219,7 +218,7 @@ export class LSPClient {
     return 'debug';
   }
 
-  private sendRequest<T>(method: string, params?: any): Promise<T> {
+  private sendRequest<T>(method: string, params?: any, timeoutMs: number = 10000): Promise<T> {
     // Check if the process is started
     if (!this.process) {
       return Promise.reject(new Error("LSP process not started. Please call start_lsp first."));
@@ -248,9 +247,9 @@ export class LSPClient {
       const timeoutId = setTimeout(() => {
         if (this.responsePromises.has(id)) {
           this.responsePromises.delete(id);
-          reject(new Error(`Timeout waiting for response to ${method} request`));
+          reject(new Error(`Timeout waiting for response to ${method} request after ${timeoutMs}ms`));
         }
-      }, 10000); // 10 second timeout
+      }, timeoutMs);
 
       // Store promise with cleanup for timeout
       this.responsePromises.set(id, {
@@ -312,6 +311,8 @@ export class LSPClient {
       }
 
       info("Initializing LSP connection...");
+      // Initialization covers JVM startup plus project indexing, which can far
+      // exceed the default request timeout on larger projects.
       await this.sendRequest("initialize", {
         processId: process.pid,
         clientInfo: {
@@ -343,7 +344,7 @@ export class LSPClient {
             }
           }
         }
-      });
+      }, 60000);
 
       this.sendNotification("initialized", {});
       this.initialized = true;
@@ -628,7 +629,7 @@ export class LSPClient {
     }
 
     // Reset state
-    this.buffer = "";
+    this.buffer = Buffer.alloc(0);
     this.messageQueue = [];
     this.nextId = 1;
     this.responsePromises.clear();

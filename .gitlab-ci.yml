@@ -111,6 +111,21 @@ deploy-npm-gitlab:
     - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
   when: manual
 
+# Cross-builds jlink runtime bundles of the Rell LSP for all supported platforms and
+# publishes them to this project's generic package registry. Runs from a scheduled
+# pipeline (create one in CI/CD > Schedules) to pick up new LSP releases automatically,
+# or manually with RELL_LSP_VERSION set to backfill a specific version. Idempotent:
+# exits early when the version's bundles are already published.
+build-lsp-runtimes:
+  stage: deploy
+  script:
+    - ./scripts/build-jlink-bundles.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
 release-patch:
   extends: .release
   stage: release

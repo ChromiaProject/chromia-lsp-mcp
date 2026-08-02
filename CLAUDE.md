@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An MCP server (`@chromia/chromia-lsp-mcp`, stdio transport) that exposes Rell LSP features — hover, completions, diagnostics, code actions — as MCP tools and `lsp-*://` resources. It downloads the Rell language server JAR (`net.postchain.rell:rell-toolbox-language-server`) from the GitLab Maven registry and drives it as a Java subprocess.
+An MCP server (`@chromia/chromia-lsp-mcp`, stdio transport) that exposes Rell LSP features — hover, completions, diagnostics, code actions — as MCP tools and `lsp-*://` resources. It downloads the Rell language server (`net.postchain.rell:rell-toolbox-language-server`) and drives it as a Java subprocess: preferably a self-contained jlink runtime bundle from this project's generic package registry, otherwise the fat JAR from the GitLab Maven registry run with the user's Java.
 
 ## Commands
 
@@ -37,17 +37,19 @@ Positions cross a 1-based/0-based boundary at the handler layer: MCP tool and re
 
 `LSPClient` (`src/lspClient.ts`) handles framing, an id→promise map with a 10-second timeout per request, document open/version tracking, and the diagnostics cache. Hover, completion, and code-action failures are caught and returned as empty string / empty array, so an empty result means "no data or the request failed", not "no such symbol" — check logs at `debug` when a result looks wrong.
 
-Diagnostics are push-only: they arrive via `textDocument/publishDiagnostics` notifications and are cached per URI, so `get_diagnostics` returns whatever has landed so far and requires the document to be open first. Cache keys are normalized with `uri.replace('file:/', 'file:///')` because the Rell server emits the short form while `createFileUri` produces `file:///…`. Subscriptions to `lsp-diagnostics://` register a callback on the client and push `notifications/resources/update`; the subscription handler strips the scheme with a hardcoded `uri.slice(18)`.
+Diagnostics are push-only: they arrive via `textDocument/publishDiagnostics` notifications and are cached per URI, so `get_diagnostics` returns whatever has landed so far and requires the document to be open first. Cache keys are normalized from the short form `file:/…` (which the Rell server emits) to the `file:///…` form `createFileUri` produces. Subscriptions to `lsp-diagnostics://` register a callback on the client and push `notifications/resources/update`; the subscription handler strips the scheme with a hardcoded `uri.slice(18)`.
 
-### Version resolution (`src/downloader/index.ts`)
+### Server resolution (`src/downloader/index.ts`)
 
-The Rell LSP version is only ever read from `process.argv[2]`. With an explicit version, that version is cached-or-downloaded. Without one, the newest JAR already in `~/.chromia/lsp-mcp/` wins and the registry is never consulted — so a cached install never self-updates. To pick up a newer LSP, pass the version explicitly or clear the cache directory. `fetchLatestVersion` prefers `<release>` over `<latest>` in `maven-metadata.xml` because `<latest>` can point at a `-SNAPSHOT`.
+The Rell LSP version is only ever read from `process.argv[2]`. With an explicit version, that version is cached-or-downloaded. Without one, the newest install already in `~/.chromia/lsp-mcp/` (JAR or runtime bundle) wins and the registry is never consulted — so a cached install never self-updates. To pick up a newer LSP, pass the version explicitly or clear the cache directory. `fetchLatestVersion` prefers `<release>` over `<latest>` in `maven-metadata.xml` because `<latest>` can point at a `-SNAPSHOT`.
+
+`resolveLspServer` returns a `{javaPath, jarPath, bundled}` launch spec. For the six supported platforms it first tries a jlink runtime bundle (`runtime-<version>-<classifier>/` in the cache dir, downloaded from this project's generic package registry and extracted with the system `tar`); any bundle failure falls back to the fat JAR run with the user's Java — `JAVA_HOME` first, then `PATH`. Bundles are cross-built and published by `scripts/build-jlink-bundles.sh` via the `build-lsp-runtimes` CI job (scheduled/manual); a version released before its bundles are published just logs the 404 at `info` and falls back.
 
 Note that the `start_lsp` handler constructs `new LSPClient()` with no version when `lspClient` is null, which would drop the CLI pin; in practice `runServer()` always creates the client first, so that branch is dead.
 
 ### Logging (`src/logging/index.ts`)
 
-This module globally reassigns `console.log`/`warn`/`error` to route through the level system. Levels map onto streams: `debug` and `warning` go to stderr, `error` and above go to stderr, but `info` and `notice` go to **stdout** — the same channel MCP JSON-RPC uses. Prefer `debug()` or `warning()` for anything chatty you add, and don't introduce bare `console.log`. Initial level comes from `LOG_LEVEL`, defaulting to `info`; clients can change it at runtime via `set_log_level` or the MCP `logging/setLevel` request.
+This module globally reassigns `console.log`/`warn`/`error` to route through the level system. Every level goes to **stderr** — stdout is reserved for the MCP JSON-RPC stream, so never write to it directly and don't introduce bare `console.log`. Initial level comes from `LOG_LEVEL`, defaulting to `info`; clients can change it at runtime via `set_log_level` or the MCP `logging/setLevel` request.
 
 ## Adding a tool
 

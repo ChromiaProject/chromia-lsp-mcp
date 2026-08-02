@@ -4,8 +4,6 @@ import { LoggingLevel } from "../types/index.js";
 // import os from "os";
 
 // Store original console methods before we do anything else
-const originalConsoleLog = console.log;
-const originalConsoleWarn = console.warn;
 const originalConsoleError = console.error;
 
 // Current log level - can be changed at runtime
@@ -70,14 +68,14 @@ export const log = (level: LoggingLevel, ...args: any[]): void => {
   // writeLog(`${timestamp} ${message}\n`);
 
   // fs.appendFileSync(path.join(os.homedir(), '.chromia', 'lsp-mcp', 'lsp-mcp.log'), `${timestamp} ${message}\n`);
-  // Format for console output with color coding
-  let consoleMethod = originalConsoleLog; // Use original methods to prevent recursion
+  // Format for console output with color coding.
+  // All levels go to stderr: stdout carries the MCP JSON-RPC stream and any
+  // stray text on it corrupts the protocol.
   let consolePrefix = '';
 
   switch (level) {
     case 'debug':
       consolePrefix = '\x1b[90m[DEBUG]\x1b[0m'; // Gray
-      consoleMethod = originalConsoleWarn || originalConsoleLog;
       break;
     case 'info':
       consolePrefix = '\x1b[36m[INFO]\x1b[0m'; // Cyan
@@ -87,27 +85,22 @@ export const log = (level: LoggingLevel, ...args: any[]): void => {
       break;
     case 'warning':
       consolePrefix = '\x1b[33m[WARNING]\x1b[0m'; // Yellow
-      consoleMethod = originalConsoleWarn || originalConsoleLog;
       break;
     case 'error':
       consolePrefix = '\x1b[31m[ERROR]\x1b[0m'; // Red
-      consoleMethod = originalConsoleError;
       break;
     case 'critical':
       consolePrefix = '\x1b[41m\x1b[37m[CRITICAL]\x1b[0m'; // White on red
-      consoleMethod = originalConsoleError;
       break;
     case 'alert':
       consolePrefix = '\x1b[45m\x1b[37m[ALERT]\x1b[0m'; // White on purple
-      consoleMethod = originalConsoleError;
       break;
     case 'emergency':
       consolePrefix = '\x1b[41m\x1b[1m[EMERGENCY]\x1b[0m'; // Bold white on red
-      consoleMethod = originalConsoleError;
       break;
   }
 
-  consoleMethod(`${consolePrefix} ${message}`);
+  originalConsoleError(`${consolePrefix} ${message}`);
 
   // Send notification to MCP client if server is available and initialized
   if (serverInstance && typeof serverInstance.notification === 'function') {
@@ -144,7 +137,7 @@ export const setLogLevel = (level: LoggingLevel): void => {
 
   // Always log this message regardless of the new log level
   // Use notice level to ensure it's visible
-  originalConsoleLog(`\x1b[32m[NOTICE]\x1b[0m Log level changed from ${oldLevel} to ${level}`);
+  originalConsoleError(`\x1b[32m[NOTICE]\x1b[0m Log level changed from ${oldLevel} to ${level}`);
 
   // Also log through standard channels
   log('notice', `Log level set to: ${level}`);
@@ -153,8 +146,8 @@ export const setLogLevel = (level: LoggingLevel): void => {
 // Override console methods to use our logging system
 console.log = function (...args) {
   if (isLogging) {
-    // Use original method to prevent recursion
-    originalConsoleLog(...args);
+    // Use stderr directly to prevent recursion without touching the MCP stdout channel
+    originalConsoleError(...args);
     return;
   }
 
@@ -165,8 +158,8 @@ console.log = function (...args) {
 
 console.warn = function (...args) {
   if (isLogging) {
-    // Use original method to prevent recursion
-    originalConsoleWarn(...args);
+    // Use stderr directly to prevent recursion without touching the MCP stdout channel
+    originalConsoleError(...args);
     return;
   }
 

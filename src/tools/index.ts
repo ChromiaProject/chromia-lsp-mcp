@@ -181,7 +181,7 @@ export const getToolHandlers = (lspClient: LSPClient | null, setLspClient: (clie
           await lspClient!.initialize(startRootDir);
 
           return {
-            content: [{ type: "text", text: `LSP server successfully started with root directory: ${rootDir}` }],
+            content: [{ type: "text", text: `LSP server successfully started with root directory: ${startRootDir}` }],
           };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);

@@ -24,7 +24,7 @@ The server automatically downloads and manages the Rell LSP server, eliminating 
 ## Requirements
 
 - Node.js 20 or later or Bun
-- Java 21 or later on your `PATH`, since the Rell language server is a JVM program
+- Java 21 or later on your `PATH` or in `JAVA_HOME` — only on platforms without a prebuilt runtime bundle. On Linux (x64/arm64), macOS (Intel/Apple Silicon), and Windows (x64/arm64) the server downloads a self-contained Java runtime automatically, so no Java installation is needed.
 
 ## Installation
 
@@ -119,13 +119,13 @@ In Claude Code, `claude --mcp-debug` additionally shows the raw traffic between 
 
 ## Troubleshooting
 
-If the server exits with `Startup failed: Java JDK + required`, it could not find Java. It looks only at your `PATH` (via `which java`, or `where java` on Windows) and, currently, ignores `JAVA_HOME`. Check that `java -version` reports 21 or later. Editors launched from the desktop rather than a terminal do not inherit your shell's `PATH`, so a JDK installed through a version manager such as SDKMAN or jenv is often invisible to them; either install a system-wide JDK or start the client from a terminal.
+On supported platforms the server runs the Rell LSP with a self-contained runtime bundle downloaded to `~/.chromia/lsp-mcp/` and no local Java is involved. If no bundle exists for your platform or the chosen LSP version, it falls back to your own Java: `JAVA_HOME` first, then `PATH` (`which java` / `where java` on Windows). If startup fails asking for Java, check that `java -version` reports 21 or later. Editors launched from the desktop rather than a terminal do not inherit your shell's `PATH`, so a JDK installed through a version manager such as SDKMAN or jenv is often invisible to them; set `JAVA_HOME`, install a system-wide JDK, or start the client from a terminal.
 
 `Version 0.16.x not found in GitLab registry` means the pinned Rell LSP version does not exist. Drop the version argument to take the latest release.
 
 `LSP server not started. Call start_lsp first with a root directory.` is expected right after the client connects. Ask the assistant to start the LSP server on your project root.
 
-If the language server itself misbehaves, delete `~/.chromia/lsp-mcp/`; the jar is downloaded again on the next start.
+If the language server itself misbehaves, delete `~/.chromia/lsp-mcp/`; the runtime bundle or jar is downloaded again on the next start.
 
 ## License
 
