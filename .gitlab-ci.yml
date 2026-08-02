@@ -118,6 +118,13 @@ deploy-npm-gitlab:
 # exits early when the version's bundles are already published.
 build-lsp-runtimes:
   stage: deploy
+  # Not the project's node image: that one is Alpine (musl), and the downloaded Temurin
+  # jdeps/jlink are glibc binaries. This job needs no node either way — just bash/curl/tar.
+  image: debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+  cache: []
+  dependencies: []
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl ca-certificates
   script:
     - ./scripts/build-jlink-bundles.sh
   rules:
