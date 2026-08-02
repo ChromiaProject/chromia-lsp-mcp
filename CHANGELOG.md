@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/build-jlink-bundles.sh` and the `build-lsp-runtimes` CI job (scheduled or manual) that cross-build the bundles for all platforms on a single Linux runner and publish them.
 
 ### Fixed
+- Runtime bundles are verified to actually run (`java -version`) before being used; on systems where the bundle's glibc-linked binary cannot execute (e.g. musl-based Alpine), the server now falls back to the JAR with system Java instead of crashing on spawn. A failed spawn of the language server also no longer takes down the whole MCP server.
 - LSP message parsing no longer hangs when the language server writes non-LSP output to stdout (e.g. the `kotlin-logging` banner printed at startup). Previously this blocked every message behind it, so `start_lsp` always timed out.
 - LSP messages are framed by byte count on a raw buffer instead of character count on a decoded string, so messages containing non-ASCII text no longer desync the stream. This also removes the old "adjust to the last closing brace" workaround.
 - All log levels now write to stderr. `info` and `notice` previously went to stdout, the same channel as MCP JSON-RPC, corrupting the protocol stream.

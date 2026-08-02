@@ -50,6 +50,9 @@ export class LSPClient {
       this.process.stdout.on("data", this.handleData.bind(this));
       this.process.stderr.on("data", (data: Buffer) => debug(`LSP: ${data}`));
       this.process.on("close", (code: number) => notice(`Exit: ${code}`));
+      // Without this handler a failed spawn (e.g. an unrunnable java binary) becomes an
+      // uncaught exception that kills the whole MCP server.
+      this.process.on("error", (error: Error) => logError(`LSP server process error: ${error.message}`));
     } catch (error: any) {
       throw new Error(`Startup failed: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -234,15 +234,20 @@ export const resolveLspServer = async (requestedVersion?: string): Promise<LspSe
     const version = await resolveVersion(requestedVersion);
 
     if (RUNTIME_CLASSIFIER) {
-        const cachedRuntimeDir = getRuntimeDirPath(version);
-        if (await fs.pathExists(getRuntimeJavaPath(cachedRuntimeDir))) {
-            debug(`Using cached runtime bundle: ${cachedRuntimeDir}`);
-            return { javaPath: getRuntimeJavaPath(cachedRuntimeDir), jarPath: getRuntimeJarPath(cachedRuntimeDir), bundled: true };
-        }
-
         try {
-            const runtimeDir = await downloadRuntimeBundle(version);
-            return { javaPath: getRuntimeJavaPath(runtimeDir), jarPath: getRuntimeJarPath(runtimeDir), bundled: true };
+            const cachedRuntimeDir = getRuntimeDirPath(version);
+            let runtimeDir: string;
+            if (await fs.pathExists(getRuntimeJavaPath(cachedRuntimeDir))) {
+                debug(`Using cached runtime bundle: ${cachedRuntimeDir}`);
+                runtimeDir = cachedRuntimeDir;
+            } else {
+                runtimeDir = await downloadRuntimeBundle(version);
+            }
+            const javaPath = getRuntimeJavaPath(runtimeDir);
+            // The bundle's java is glibc-linked; on musl systems (e.g. Alpine) spawning it
+            // fails with ENOENT even though the file exists. Prove it runs before using it.
+            await execFileAsync(javaPath, ['-version']);
+            return { javaPath, jarPath: getRuntimeJarPath(runtimeDir), bundled: true };
         } catch (error: any) {
             const status = error.response?.status;
             const reason = status === 404 ? `no bundle published for ${version}-${RUNTIME_CLASSIFIER}` : error.message;
