@@ -24,7 +24,6 @@ The server automatically downloads and manages the Rell LSP server, eliminating 
 ## Requirements
 
 - Node.js 20 or later or Bun
-- Java 21 or later on your `PATH` or in `JAVA_HOME` — only on platforms without a prebuilt runtime bundle. On Linux (x64/arm64), macOS (Intel/Apple Silicon), and Windows (x64/arm64) the server downloads a self-contained Java runtime automatically, so no Java installation is needed.
 
 ## Installation
 
