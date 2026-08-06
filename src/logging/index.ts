@@ -60,7 +60,6 @@ export const log = (level: LoggingLevel, ...args: any[]): void => {
   //   fs.appendFileSync(logFile, `${timestamp} ${message}\n`);
   // }
 
-  const timestamp = new Date().toISOString();
   const message = args.map(arg =>
     typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
   ).join(' ');
