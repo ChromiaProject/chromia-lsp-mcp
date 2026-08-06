@@ -203,7 +203,7 @@ class RellLspTester {
   }
 
   // Execute a tool and verify the result
-  async executeTool(toolName, args, validateFn = null) {
+  async executeTool(toolName, args, validateFn = null, timeoutMs = null) {
     console.log(`Executing tool: ${toolName}`);
 
     try {
@@ -213,7 +213,13 @@ class RellLspTester {
         arguments: args
       };
 
-      const result = await this.client.callTool(params);
+      // The MCP SDK enforces a 60s default request timeout. start_lsp/restart_lsp_server
+      // can legitimately take close to that long for JVM startup plus project indexing,
+      // so those calls need a longer client-side budget to avoid racing our own
+      // server-side LSP-init timeout.
+      const result = timeoutMs
+        ? await this.client.callTool(params, undefined, { timeout: timeoutMs })
+        : await this.client.callTool(params);
       console.log(`Tool result:`, result);
 
       // If a validation function is provided, run it
@@ -393,7 +399,7 @@ async function runTests() {
       }, (result) => {
         assert(result.content && result.content.length > 0,
               'Expected content in the result');
-      });
+      }, 120000);
     });
 
     // Wait for LSP to fully initialize
@@ -481,7 +487,7 @@ async function runTests() {
       await tester.executeTool('restart_lsp_server', {}, (result) => {
         assert(result.content && result.content.length > 0,
               'Expected content in the result');
-      });
+      }, 120000);
     });
     
     // Test listing resources

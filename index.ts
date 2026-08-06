@@ -1,23 +1,20 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
   ReadResourceRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
   SetLevelRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { LSPClient } from "./src/lspClient.js";
 import { debug, info, notice, warning, logError, critical, alert, emergency, setLogLevel, setServer } from "./src/logging/index.js";
-import { getToolHandlers, getToolDefinitions } from "./src/tools/index.js";
-import { getPromptHandlers, getPromptDefinitions } from "./src/prompts/index.js";
+import { registerTools } from "./src/tools/index.js";
+import { registerPrompts } from "./src/prompts/index.js";
 import {
   getResourceHandlers,
   getSubscriptionHandlers,
@@ -43,8 +40,11 @@ const setRootDir = (dir: string) => {
   rootDir = dir;
 };
 
-// Server setup
-const server = new Server(
+// Server setup. Tools and prompts are registered through the high-level McpServer API
+// below; resources, subscriptions, and log level use the underlying low-level Server
+// (mcpServer.server) directly, since this server's dynamic per-open-document resource
+// listing and diagnostics-push subscriptions have no McpServer equivalent.
+const mcpServer = new McpServer(
   {
     name: "lsp-mcp-server",
     version: "0.3.0",
@@ -52,77 +52,20 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {
-        description: "A set of tools for interacting with the Language Server Protocol (LSP). These tools provide access to language-specific features like code completion, hover information, diagnostics, and code actions. Before using any LSP features, you must first call start_lsp with the project root directory, then open the files you wish to analyze."
-      },
       resources: {
-        description: "URI-based access to Language Server Protocol (LSP) features. These resources provide a way to access language-specific features like diagnostics, hover information, and completions through a URI pattern. Before using these resources, you must first call the start_lsp tool with the project root directory, then open the files you wish to analyze using the open_document tool. Additional resources may be available through language-specific extensions.",
-        templates: getResourceTemplates()
+        subscribe: true
       },
-      prompts: {
-        description: "Helpful prompts related to using the LSP MCP server. These prompts provide guidance on how to use the LSP features and tools available in this server. Additional prompts may be available through language-specific extensions."
-      },
-      logging: {
-        description: "Logging capabilities for the LSP MCP server. Use the set_log_level tool to control logging verbosity. The server sends notifications about important events, errors, and diagnostic updates."
-      }
+      logging: {}
     },
   },
 );
+const server = mcpServer.server;
 
 // Set the server instance for logging and tools
 setServer(server);
 
-// Tool handlers
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  debug("Handling ListTools request");
-  const toolDefinitions = getToolDefinitions();
-  return {
-    tools: [...toolDefinitions],
-  };
-});
-
-// Get the combined tool handlers from core and extensions
-const getToolsHandlers = () => {
-  // Get core handlers, passing the server instarce for notifications
-  const coreHandlers = getToolHandlers(lspClient, setLspClient, rootDir, setRootDir, server);
-  // Combine them (extensions take precedence in case of name conflicts)
-  return { ...coreHandlers };
-};
-
-// Handle tool requests using the toolHandlers object
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    const { name, arguments: args } = request.params;
-    debug(`Handling CallTool request for tool: ${name}`);
-
-    // Get the latest tool handlers and look up the handler for this tool
-    const toolHandlers = getToolsHandlers();
-
-    // Check if it's a direct handler or an extension handler
-    const toolHandler = toolHandlers[name as keyof typeof toolHandlers];
-
-    if (!toolHandler) {
-      throw new Error(`Unknown tool: ${name}`);
-    }
-
-    // Validate the arguments against the schema
-    const parsed = toolHandler.schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(`Invalid arguments for ${name}: ${parsed.error}`);
-    }
-
-    // Call the handler with the validated arguments
-    return await toolHandler.handler(parsed.data);
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(`Error handling tool request: ${errorMessage}`);
-    return {
-      content: [{ type: "text", text: `Error: ${errorMessage}` }],
-      isError: true,
-    };
-  }
-});
+registerTools(mcpServer, () => lspClient, setLspClient, () => rootDir, setRootDir);
+registerPrompts(mcpServer);
 
 // Resource handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
@@ -183,7 +126,7 @@ server.setRequestHandler(SubscribeRequestSchema, async (request) => {
 // Resource unsubscription handler
 server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
   try {
-    const { uri, context } = request.params;
+    const { uri } = request.params;
     debug(`Handling UnsubscribeResource request for URI: ${uri}`);
 
     // Get the core and extension unsubscription handlers
@@ -194,7 +137,11 @@ server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
     // Find the appropriate handler for this URI scheme
     const handlerKey = Object.keys(unsubscriptionHandlers).find(key => uri.startsWith(key));
     if (handlerKey) {
-      return await unsubscriptionHandlers[handlerKey](uri, context);
+      // The MCP UnsubscribeRequest schema carries no client-supplied "context" field,
+      // so the callback-bearing SubscriptionContext returned by subscribe can never
+      // round-trip here over real JSON-RPC (it isn't part of the spec's params, and a
+      // live function reference wouldn't survive JSON serialization anyway).
+      return await unsubscriptionHandlers[handlerKey](uri, undefined);
     }
 
     throw new Error(`Unknown resource URI: ${uri}`);
@@ -251,47 +198,24 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
   }
 });
 
-// Prompt listing handler
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
+// Resource template listing handler
+server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
   try {
-    debug("Handling ListPrompts request");
-    const corePrompts = getPromptDefinitions();
-    return {
-      prompts: [...corePrompts],
-    };
+    debug("Handling ListResourceTemplates request");
+    const resourceTemplates = getResourceTemplates().map(({ pattern, name, description }) => ({
+      uriTemplate: pattern,
+      name,
+      description
+    }));
+    return { resourceTemplates };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(`Error handling list prompts request: ${errorMessage}`);
+    logError(`Error handling list resource templates request: ${errorMessage}`);
     return {
-      prompts: [],
+      resourceTemplates: [],
       isError: true,
       error: errorMessage
     };
-  }
-});
-
-// Get prompt handler
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  try {
-    const { name, arguments: args } = request.params;
-    debug(`Handling GetPrompt request for prompt: ${name}`);
-
-    const coreHandlers = getPromptHandlers();
-
-    const promptHandlers = { ...coreHandlers };
-
-    const promptHandler = promptHandlers[name];
-
-    if (!promptHandler) {
-      throw new Error(`Unknown prompt: ${name}`);
-    }
-
-    // Call the handler with the arguments
-    return await promptHandler(args);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(`Error handling get prompt request: ${errorMessage}`);
-    throw new Error(`Error handling get prompt request: ${errorMessage}`);
   }
 });
 
@@ -328,7 +252,7 @@ async function runServer() {
   notice(`Starting LSP MCP Server`);
 
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await mcpServer.connect(transport);
   notice("LSP MCP Server running on stdio");
 
   // Create LSP client instance but don't start the process or initialize yet

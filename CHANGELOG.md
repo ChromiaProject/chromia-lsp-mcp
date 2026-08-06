@@ -5,6 +5,20 @@ All notable changes to `@chromia/chromia-lsp-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] — 2026-08-06
+
+### Changed
+- Migrated `@modelcontextprotocol/sdk` 0.5.0 → 1.30.0, `zod` 3 → 4, and `typescript` 5 → 7.
+- `src/lspClient.ts`'s hand-rolled JSON-RPC framing, message queue, and id/response bookkeeping were replaced with `vscode-jsonrpc`, Microsoft's official LSP transport library, substantially shrinking the file while preserving framing, per-method log levels, and request timeouts.
+- Tool input schemas are now generated with zod v4's native `z.toJSONSchema()` instead of the third-party `zod-to-json-schema` package, which is no longer a dependency.
+- The server's announced capabilities now match the real MCP capability shape instead of carrying non-standard `description`/`templates` fields that no compliant client ever read.
+
+### Added
+- A spec-compliant `resources/templates/list` handler. Resource templates were previously only embedded in the non-standard capabilities field and were never reachable by a real client.
+
+### Fixed
+- LSP notification sends no longer risk an unhandled promise rejection if the subprocess's stdin pipe write fails.
+
 ## [0.0.7] — 2026-08-02
 
 ### Added
@@ -78,6 +92,7 @@ Initial release, published as `@chromia/chromia-lsp-mcp`.
 - Integration test suite against a fixture Rell project.
 - GitLab CI pipeline publishing to the npm registry.
 
+[0.0.8]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.7...0.0.8
 [0.0.7]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.6...0.0.7
 [0.0.6]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.5...0.0.6
 [0.0.5]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.4...0.0.5

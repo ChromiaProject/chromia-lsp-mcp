@@ -1,17 +1,6 @@
 // Type definitions
 
 import { z } from "zod";
-import { ToolSchema } from "@modelcontextprotocol/sdk/types.js";
-
-// LSP message handling
-export interface LSPMessage {
-  jsonrpc: string;
-  id?: number | string;
-  method?: string;
-  params?: any;
-  result?: any;
-  error?: any;
-}
 
 // Define a type for diagnostic subscribers
 export type DiagnosticUpdateCallback = (uri: string, diagnostics: any[]) => void;
@@ -24,13 +13,6 @@ export interface SubscriptionContext {
 // Logging level type
 export type LoggingLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
-// Tool input type
-export const ToolInputSchema = ToolSchema.shape.inputSchema;
-export type ToolInput = z.infer<typeof ToolInputSchema>;
-
-// Tool handler types
-export type ToolHandler = (args: any) => Promise<{ content: Array<{ type: string, text: string }>, isError?: boolean }>;
-
 // Resource handler type
 export type ResourceHandler = (uri: string) => Promise<{ contents: Array<{ type: string, text: string, uri: string }> }>;
 
@@ -39,27 +21,6 @@ export type SubscriptionHandler = (uri: string) => Promise<{ ok: boolean, contex
 
 // Unsubscription handler type
 export type UnsubscriptionHandler = (uri: string, context: any) => Promise<{ ok: boolean, error?: string }>;
-
-// Prompt types
-export interface Prompt {
-  name: string;
-  description: string;
-  arguments?: Array<{
-    name: string;
-    description: string;
-    required: boolean;
-  }>;
-}
-
-export type PromptHandler = (args?: Record<string, string>) => Promise<{
-  messages: Array<{
-    role: string;
-    content: {
-      type: string;
-      text: string;
-    };
-  }>;
-}>;
 
 // Schema definitions
 export const GetInfoOnLocationArgsSchema = z.object({

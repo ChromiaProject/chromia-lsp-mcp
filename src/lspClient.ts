@@ -1,24 +1,65 @@
-import { spawn } from "child_process";
+import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import path from "path";
-import { LSPMessage, DiagnosticUpdateCallback, LoggingLevel } from "./types/index.js";
+import { PassThrough } from "stream";
+import {
+  createMessageConnection,
+  MessageConnection,
+  StreamMessageReader,
+  StreamMessageWriter,
+} from "vscode-jsonrpc/node";
+import { DiagnosticUpdateCallback, LoggingLevel } from "./types/index.js";
 import { debug, info, notice, warning, log, logError } from "./logging/index.js";
 import { resolveLspServer, LspServerLaunch } from "./downloader/index.js";
 
+// The Rell LSP server may write non-LSP output to stdout before its first framed
+// message (e.g. the kotlin-logging banner), which would otherwise desync
+// vscode-jsonrpc's header parser. Everything up to the first "Content-Length:"
+// is discarded; the stream is passed through untouched from then on.
+//
+// NOTE: an earlier version of this tried to peek at process.stdout directly and
+// Readable.unshift() the remainder back for StreamMessageReader to read. That
+// silently drops data: unshift() only refills the internal buffer for the *next*
+// read on that same stream instance, but re-attaching a fresh 'data' listener
+// afterward does not replay it — only bytes that arrive after the new listener
+// attaches are delivered. Route through an explicit PassThrough instead.
+function stripLeadingNonLspOutput(source: NodeJS.ReadableStream): NodeJS.ReadableStream {
+  const output = new PassThrough();
+  let sawHeader = false;
+  let pending = Buffer.alloc(0);
+
+  source.on("data", (chunk: Buffer) => {
+    if (sawHeader) {
+      output.write(chunk);
+      return;
+    }
+
+    pending = Buffer.concat([pending, chunk]);
+    const headerStart = pending.indexOf("Content-Length:");
+    if (headerStart === -1) return;
+
+    const junk = pending.subarray(0, headerStart).toString().trim();
+    if (junk) debug(`Skipping non-LSP output from server: ${junk}`);
+
+    sawHeader = true;
+    output.write(pending.subarray(headerStart));
+    pending = Buffer.alloc(0);
+  });
+  source.on("end", () => output.end());
+  source.on("error", (error) => output.destroy(error));
+
+  return output;
+}
+
 export class LSPClient {
-  private process: any;
-  private buffer: Buffer = Buffer.alloc(0);
+  private process: ChildProcessWithoutNullStreams | null = null;
+  private connection: MessageConnection | null = null;
   private launchPromise: Promise<LspServerLaunch> | null = null;
-  private messageQueue: LSPMessage[] = [];
-  private nextId: number = 1;
-  private responsePromises: Map<string | number, { resolve: Function; reject: Function }> = new Map();
   private initialized: boolean = false;
-  private serverCapabilities: any = null;
   private openedDocuments: Set<string> = new Set();
   private documentVersions: Map<string, number> = new Map();
-  private processingQueue: boolean = false;
   private documentDiagnostics: Map<string, any[]> = new Map();
   private diagnosticSubscribers: Set<DiagnosticUpdateCallback> = new Set();
-  private rellLspVersion?: string 
+  private readonly rellLspVersion?: string
 
   private languageId: string = "rell"
 
@@ -47,157 +88,55 @@ export class LSPClient {
 
       this.process = spawn(launch.javaPath, ['-jar', launch.jarPath], { stdio: "pipe" });
 
-      this.process.stdout.on("data", this.handleData.bind(this));
       this.process.stderr.on("data", (data: Buffer) => debug(`LSP: ${data}`));
       this.process.on("close", (code: number) => notice(`Exit: ${code}`));
       // Without this handler a failed spawn (e.g. an unrunnable java binary) becomes an
       // uncaught exception that kills the whole MCP server.
       this.process.on("error", (error: Error) => logError(`LSP server process error: ${error.message}`));
+
+      this.connection = createMessageConnection(
+        new StreamMessageReader(stripLeadingNonLspOutput(this.process.stdout)),
+        new StreamMessageWriter(this.process.stdin)
+      );
+      this.connection.onNotification((method: string, params: any) => this.handleNotification(method, params));
+      this.connection.onError(([error]: [Error, unknown, number | undefined]) =>
+        logError(`LSP connection error: ${error?.message ?? String(error)}`));
+      this.connection.onClose(() => debug("LSP connection closed"));
+      this.connection.listen();
     } catch (error: any) {
       throw new Error(`Startup failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private handleData(data: Buffer): void {
-    // Append new data to buffer
-    this.buffer = Buffer.concat([this.buffer, data]);
+  private handleNotification(method: string, params: any): void {
+    this.logLspMessage('RECEIVED', method, params);
 
-    // Implement a safety limit to prevent excessive buffer growth
-    const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit
-    if (this.buffer.length > MAX_BUFFER_SIZE) {
-      logError(`Buffer size exceeded ${MAX_BUFFER_SIZE} bytes, clearing buffer to prevent memory issues`);
-      this.buffer = this.buffer.subarray(this.buffer.length - MAX_BUFFER_SIZE);
-    }
+    if (method === 'textDocument/publishDiagnostics' && params) {
+      const { uri, diagnostics } = params;
 
-    // Process complete messages. Content-Length is counted in bytes, so all slicing
-    // happens on the raw Buffer; decoding to string only happens per complete message.
-    while (true) {
-      // The server may write non-LSP output to stdout (e.g. the kotlin-logging banner
-      // printed before the first message), so the header is searched for anywhere in
-      // the buffer and anything before it is discarded.
-      const headerStart = this.buffer.indexOf("Content-Length:");
-      if (headerStart === -1) break;
-      if (headerStart > 0) {
-        const junk = this.buffer.subarray(0, headerStart).toString().trim();
-        if (junk) debug(`Skipping non-LSP output from server: ${junk}`);
-        this.buffer = this.buffer.subarray(headerStart);
-      }
+      if (uri && Array.isArray(diagnostics)) {
+        const severity = diagnostics.length > 0 ?
+          Math.min(...diagnostics.map((d: any) => d.severity || 4)) : 4;
 
-      const headerEnd = this.buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) break; // Header not complete yet
+        // Map LSP severity to our log levels
+        const severityToLevel: Record<number, string> = {
+          1: 'error',      // Error
+          2: 'warning',    // Warning
+          3: 'info',       // Information
+          4: 'debug'       // Hint
+        };
 
-      const header = this.buffer.subarray(0, headerEnd).toString();
-      const lengthMatch = header.match(/Content-Length: *(\d+)/i);
-      const bodyStart = headerEnd + 4;
-      if (!lengthMatch) {
-        logError(`Malformed LSP header, skipping: ${header}`);
-        this.buffer = this.buffer.subarray(bodyStart);
-        continue;
-      }
+        const level = severityToLevel[severity] || 'debug';
 
-      const contentLength = parseInt(lengthMatch[1], 10);
+        log(level as any, `Received ${diagnostics.length} diagnostics for ${uri}`);
 
-      // Prevent processing unreasonably large messages
-      if (contentLength > MAX_BUFFER_SIZE) {
-        logError(`Received message with content length ${contentLength} exceeds maximum size, skipping`);
-        this.buffer = this.buffer.subarray(Math.min(bodyStart + contentLength, this.buffer.length));
-        continue;
-      }
+        // Store diagnostics, replacing any previous ones for this URI.
+        // The Rell server emits short-form "file:/path" URIs while createFileUri
+        // produces "file:///path"; normalize only that short form.
+        this.documentDiagnostics.set(uri.replace(/^file:\/(?!\/)/, 'file:///'), diagnostics);
 
-      // Check if we have the complete message (excluding the header)
-      if (this.buffer.length < bodyStart + contentLength) break; // Message not complete yet
-
-      const content = this.buffer.subarray(bodyStart, bodyStart + contentLength).toString();
-      this.buffer = this.buffer.subarray(bodyStart + contentLength);
-
-      // Parse the message and add to queue
-      try {
-        const message = JSON.parse(content) as LSPMessage;
-        this.messageQueue.push(message);
-        this.processMessageQueue();
-      } catch (error) {
-        logError("Failed to parse LSP message:", error);
-      }
-    }
-  }
-
-  private async processMessageQueue(): Promise<void> {
-    // If already processing, return to avoid concurrent processing
-    if (this.processingQueue) return;
-
-    this.processingQueue = true;
-
-    try {
-      while (this.messageQueue.length > 0) {
-        const message = this.messageQueue.shift()!;
-        await this.handleMessage(message);
-      }
-    } finally {
-      this.processingQueue = false;
-    }
-  }
-
-  private async handleMessage(message: LSPMessage): Promise<void> {
-    // Log the message with appropriate level
-    try {
-      const direction = 'RECEIVED';
-      const messageStr = JSON.stringify(message, null, 2);
-      // Use method to determine log level if available, otherwise use debug
-      const method = message.method || '';
-      const logLevel = this.getLSPMethodLogLevel(method);
-      log(logLevel, `LSP ${direction} (${method}): ${messageStr}`);
-    } catch (error) {
-      warning("Error logging LSP message:", error);
-    }
-
-    // Handle response messages
-    if ('id' in message && (message.result !== undefined || message.error !== undefined)) {
-      const promise = this.responsePromises.get(message.id!);
-      if (promise) {
-        if (message.error) {
-          promise.reject(message.error);
-        } else {
-          promise.resolve(message.result);
-        }
-        this.responsePromises.delete(message.id!);
-      }
-    }
-
-    // Store server capabilities from initialize response
-    if ('id' in message && message.result?.capabilities) {
-      this.serverCapabilities = message.result.capabilities;
-    }
-
-    // Handle notification messages
-    if ('method' in message && message.id === undefined) {
-      // Handle diagnostic notifications
-      if (message.method === 'textDocument/publishDiagnostics' && message.params) {
-        const { uri, diagnostics } = message.params;
-
-        if (uri && Array.isArray(diagnostics)) {
-          const severity = diagnostics.length > 0 ?
-            Math.min(...diagnostics.map(d => d.severity || 4)) : 4;
-
-          // Map LSP severity to our log levels
-          const severityToLevel: Record<number, string> = {
-            1: 'error',      // Error
-            2: 'warning',    // Warning
-            3: 'info',       // Information
-            4: 'debug'       // Hint
-          };
-
-          const level = severityToLevel[severity] || 'debug';
-
-          log(level as any, `Received ${diagnostics.length} diagnostics for ${uri}`);
-
-          // Store diagnostics, replacing any previous ones for this URI.
-          // The Rell server emits short-form "file:/path" URIs while createFileUri
-          // produces "file:///path"; normalize only that short form.
-          this.documentDiagnostics.set(uri.replace(/^file:\/(?!\/)/, 'file:///'), diagnostics);
-
-          // Notify all subscribers about this update
-          this.notifyDiagnosticUpdate(uri, diagnostics);
-        }
+        // Notify all subscribers about this update
+        this.notifyDiagnosticUpdate(uri, diagnostics);
       }
     }
   }
@@ -221,87 +160,49 @@ export class LSPClient {
     return 'debug';
   }
 
-  private sendRequest<T>(method: string, params?: any, timeoutMs: number = 10000): Promise<T> {
-    // Check if the process is started
-    if (!this.process) {
-      return Promise.reject(new Error("LSP process not started. Please call start_lsp first."));
-    }
-
-    const id = this.nextId++;
-    const request: LSPMessage = {
-      jsonrpc: "2.0",
-      id,
-      method,
-      params
-    };
-
-    // Log the request with appropriate level
+  private logLspMessage(direction: 'SENT' | 'RECEIVED', method: string, payload: any): void {
     try {
-      const direction = 'SENT';
-      const requestStr = JSON.stringify(request, null, 2);
       const logLevel = this.getLSPMethodLogLevel(method);
-      log(logLevel as any, `LSP ${direction} (${method}): ${requestStr}`);
+      log(logLevel as any, `LSP ${direction} (${method}): ${JSON.stringify(payload, null, 2)}`);
     } catch (error) {
-      warning("Error logging LSP request:", error);
+      warning(`Error logging LSP ${direction.toLowerCase()} message:`, error);
+    }
+  }
+
+  private async sendRequest<T>(method: string, params?: any, timeoutMs: number = 10000): Promise<T> {
+    if (!this.connection) {
+      throw new Error("LSP process not started. Please call start_lsp first.");
     }
 
-    const promise = new Promise<T>((resolve, reject) => {
-      // Set timeout for request
-      const timeoutId = setTimeout(() => {
-        if (this.responsePromises.has(id)) {
-          this.responsePromises.delete(id);
-          reject(new Error(`Timeout waiting for response to ${method} request after ${timeoutMs}ms`));
-        }
-      }, timeoutMs);
+    this.logLspMessage('SENT', method, params);
 
-      // Store promise with cleanup for timeout
-      this.responsePromises.set(id, {
-        resolve: (result: T) => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        },
-        reject: (error: any) => {
-          clearTimeout(timeoutId);
-          reject(error);
-        }
-      });
+    let timeoutId!: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`Timeout waiting for response to ${method} request after ${timeoutMs}ms`)),
+        timeoutMs
+      );
     });
 
-    const content = JSON.stringify(request);
-    // Content-Length header should only include the length of the JSON content
-    const header = `Content-Length: ${Buffer.byteLength(content)}\r\n\r\n`;
-    this.process.stdin.write(header + content);
-
-    return promise;
+    try {
+      const result = await Promise.race([this.connection.sendRequest<T>(method, params), timeout]);
+      this.logLspMessage('RECEIVED', method, result);
+      return result;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private sendNotification(method: string, params?: any): void {
-    // Check if the process is started
-    if (!this.process) {
+    if (!this.connection) {
       console.error("LSP process not started. Please call start_lsp first.");
       return;
     }
 
-    const notification: LSPMessage = {
-      jsonrpc: "2.0",
-      method,
-      params
-    };
-
-    // Log the notification with appropriate level
-    try {
-      const direction = 'SENT';
-      const notificationStr = JSON.stringify(notification, null, 2);
-      const logLevel = this.getLSPMethodLogLevel(method);
-      log(logLevel as any, `LSP ${direction} (${method}): ${notificationStr}`);
-    } catch (error) {
-      warning("Error logging LSP notification:", error);
-    }
-
-    const content = JSON.stringify(notification);
-    // Content-Length header should only include the length of the JSON content
-    const header = `Content-Length: ${Buffer.byteLength(content)}\r\n\r\n`;
-    this.process.stdin.write(header + content);
+    this.logLspMessage('SENT', method, params);
+    this.connection.sendNotification(method, params).catch((error) => {
+      warning(`Error sending LSP notification (${method}): ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   async initialize(rootDirectory: string = "."): Promise<void> {
@@ -316,7 +217,7 @@ export class LSPClient {
       info("Initializing LSP connection...");
       // Initialization covers JVM startup plus project indexing, which can far
       // exceed the default request timeout on larger projects.
-      await this.sendRequest("initialize", {
+      await this.sendRequest<any>("initialize", {
         processId: process.pid,
         clientInfo: {
           name: "lsp-mcp-server"
@@ -601,6 +502,8 @@ export class LSPClient {
 
       await this.sendRequest("shutdown");
       this.sendNotification("exit");
+      this.connection?.dispose();
+      this.connection = null;
       this.initialized = false;
       this.openedDocuments.clear();
       notice("LSP connection shut down successfully");
@@ -632,15 +535,11 @@ export class LSPClient {
     }
 
     // Reset state
-    this.buffer = Buffer.alloc(0);
-    this.messageQueue = [];
-    this.nextId = 1;
-    this.responsePromises.clear();
+    this.connection?.dispose();
+    this.connection = null;
     this.initialized = false;
-    this.serverCapabilities = null;
     this.openedDocuments.clear();
     this.documentVersions.clear();
-    this.processingQueue = false;
     this.documentDiagnostics.clear();
     this.clearDiagnosticSubscribers();
 

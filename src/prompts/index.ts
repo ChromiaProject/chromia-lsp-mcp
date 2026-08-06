@@ -1,27 +1,20 @@
 // Prompts module for LSP MCP
-import { Prompt, PromptHandler } from "../types/index.js";
-import { debug, info } from "../logging/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { debug } from "../logging/index.js";
 
 // Enum for prompt names
 enum PromptName {
   LSP_GUIDE = "lsp_guide",
-  LANGUAGE_HELP = "language_help",
 }
 
-// Get prompt definitions for the server
-export const getPromptDefinitions = (): Prompt[] => {
-  return [
+// Register all prompts on the MCP server
+export const registerPrompts = (mcpServer: McpServer): void => {
+  mcpServer.registerPrompt(
+    PromptName.LSP_GUIDE,
     {
-      name: PromptName.LSP_GUIDE,
       description: "A guide on how to use the LSP (Language Server Protocol) functions available through this MCP server",
-    }
-  ];
-};
-
-// Define handlers for each prompt
-export const getPromptHandlers = (): Record<string, PromptHandler> => {
-  return {
-    [PromptName.LSP_GUIDE]: async () => {
+    },
+    async () => {
       debug(`Handling LSP guide prompt`);
 
       return {
@@ -84,6 +77,6 @@ Remember that line and character positions are 1-based (first line is 1, first c
           },
         ],
       };
-    },
-  };
+    }
+  );
 };
