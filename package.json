@@ -1,6 +1,6 @@
 {
   "name": "@chromia/chromia-lsp-mcp",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "MCP server for Rell Language Server Protocol (LSP) integration, providing hover information, code completions, diagnostics, and code actions with resource-based access",
   "mcpName": "com.chromaway/chromia-lsp-mcp",
   "license": "MIT",
