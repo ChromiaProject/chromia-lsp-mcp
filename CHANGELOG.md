@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9] — 2026-08-07
+
 ### Added
 - `get_definition` tool: go-to-definition via `textDocument/definition`.
 - `get_references` tool: find all references via `textDocument/references`.
@@ -106,6 +108,8 @@ Initial release, published as `@chromia/chromia-lsp-mcp`.
 - Integration test suite against a fixture Rell project.
 - GitLab CI pipeline publishing to the npm registry.
 
+[Unreleased]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.9...dev
+[0.0.9]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.8...0.0.9
 [0.0.8]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.7...0.0.8
 [0.0.7]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.6...0.0.7
 [0.0.6]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.5...0.0.6
