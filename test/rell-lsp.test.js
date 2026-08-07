@@ -4,6 +4,7 @@
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import os from 'os';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import assert from 'assert';
@@ -472,6 +473,67 @@ async function runTests() {
       });
     });
 
+    // Test getting the definition of a symbol (the "user" entity referenced in the
+    // "transaction" entity's "from_user: user;" attribute)
+    await tester.runTest('Get definition', async () => {
+      await tester.executeTool('get_definition', {
+        file_path: EXAMPLE_RELL_FILE,
+        line: 68,
+        column: 17
+      }, (result) => {
+        assert(result.content && result.content.length > 0,
+              'Expected content in the result');
+        const locations = JSON.parse(result.content[0].text);
+        assert(Array.isArray(locations) && locations.length > 0,
+              'Expected at least one definition location');
+        assert(locations[0].range.start.line === 5,
+              `Expected the definition to resolve to the "user" entity declaration on line 5 (0-based), got ${JSON.stringify(locations[0])}`);
+      });
+    });
+
+    // Test finding references to the "user" entity (declared at 6:8)
+    await tester.runTest('Get references', async () => {
+      await tester.executeTool('get_references', {
+        file_path: EXAMPLE_RELL_FILE,
+        line: 6,
+        column: 8
+      }, (result) => {
+        assert(result.content && result.content.length > 0,
+              'Expected content in the result');
+        const locations = JSON.parse(result.content[0].text);
+        assert(Array.isArray(locations) && locations.length > 1,
+              'Expected the declaration plus at least one usage of "user"');
+      });
+    });
+
+    // Test getting an outline of the file's symbols
+    await tester.runTest('Get document symbols', async () => {
+      await tester.executeTool('get_document_symbols', {
+        file_path: EXAMPLE_RELL_FILE
+      }, (result) => {
+        assert(result.content && result.content.length > 0,
+              'Expected content in the result');
+        const symbols = JSON.parse(result.content[0].text);
+        assert(Array.isArray(symbols) && symbols.length > 0,
+              'Expected at least one document symbol');
+        assert(symbols.some(s => s.children?.some(c => c.name === 'user')),
+              'Expected the "user" entity to appear in the document outline');
+      });
+    });
+
+    // Test searching for symbols by name across the workspace
+    await tester.runTest('Get workspace symbols', async () => {
+      await tester.executeTool('get_workspace_symbols', {
+        query: 'user'
+      }, (result) => {
+        assert(result.content && result.content.length > 0,
+              'Expected content in the result');
+        const symbols = JSON.parse(result.content[0].text);
+        assert(Array.isArray(symbols) && symbols.length > 0,
+              'Expected at least one workspace symbol matching "user"');
+      });
+    });
+
     // Test closing document
     await tester.runTest('Close document', async () => {
       await tester.executeTool('close_document', {
@@ -537,6 +599,93 @@ async function runTests() {
               'Expected contents in the completion result');
       });
     });
+
+    // Rename, format, and apply-code-action all write to disk, so they run against a
+    // throwaway copy of the fixture project rather than EXAMPLE_RELL_FILE, whose
+    // coordinates every test above this point depends on.
+    const mutationProjectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'rell-lsp-mutation-'));
+    const mutationFile = path.join(mutationProjectPath, 'src', 'example.rell');
+
+    try {
+      await fs.cp(RELL_PROJECT_PATH, mutationProjectPath, { recursive: true });
+
+      await tester.runTest('Restart LSP for mutation tests', async () => {
+        await tester.executeTool('restart_lsp_server', {
+          root_dir: mutationProjectPath
+        }, (result) => {
+          assert(result.content && result.content.length > 0,
+                'Expected content in the result');
+        }, 120000);
+      });
+
+      await tester.runTest('Open document (mutation copy)', async () => {
+        await tester.executeTool('open_document', {
+          file_path: mutationFile,
+          language_id: 'rell'
+        }, (result) => {
+          assert(result.content && result.content.length > 0,
+                'Expected content in the result');
+        });
+      });
+
+      // Rename runs before format/apply_code_action below: it doesn't change line counts,
+      // so it can't shift the coordinates the later mutating tests rely on.
+      await tester.runTest('Rename symbol', async () => {
+        await tester.executeTool('rename_symbol', {
+          file_path: mutationFile,
+          line: 62,
+          column: 10,
+          new_name: 'format_money'
+        }, async (result) => {
+          assert(result.content && result.content.length > 0,
+                'Expected content in the result');
+          const newContent = await fs.readFile(mutationFile, 'utf8');
+          assert(newContent.includes('function format_money(') && !newContent.includes('format_currency'),
+                'Expected "format_currency" to be renamed to "format_money" on disk');
+        });
+      });
+
+      // Line 21 (1-based) is the `require(name.size() > 0, ...)` linter diagnostic
+      // ("Use '.empty()' instead of a '.size()' comparison"); the server only attaches a
+      // fix when the requested range's start line matches the diagnostic's line exactly.
+      await tester.runTest('Apply code action', async () => {
+        const codeActionsResult = await tester.executeTool('get_code_actions', {
+          file_path: mutationFile,
+          language_id: 'rell',
+          start_line: 21,
+          start_column: 1,
+          end_line: 21,
+          end_column: 40
+        });
+        const actions = JSON.parse(codeActionsResult.content[0].text);
+        assert(Array.isArray(actions) && actions.length > 0,
+              'Expected at least one code action for the linter diagnostic on line 21');
+
+        await tester.executeTool('apply_code_action', {
+          file_path: mutationFile,
+          code_action: actions[0]
+        }, async (result) => {
+          assert(result.content && result.content.length > 0,
+                'Expected content in the result');
+          const applyResult = JSON.parse(result.content[0].text);
+          assert(applyResult.applied === true, 'Expected the code action to be applied');
+          const newContent = await fs.readFile(mutationFile, 'utf8');
+          assert(newContent.includes('not name.empty()'),
+                `Expected the quick fix to replace the .size() comparison, got:\n${newContent.split('\n')[20]}`);
+        });
+      });
+
+      await tester.runTest('Format document', async () => {
+        await tester.executeTool('format_document', {
+          file_path: mutationFile
+        }, (result) => {
+          assert(result.content && result.content.length > 0,
+                'Expected content in the result');
+        });
+      });
+    } finally {
+      await fs.rm(mutationProjectPath, { recursive: true, force: true });
+    }
 
   } catch (error) {
     console.error('ERROR in tests:', error);

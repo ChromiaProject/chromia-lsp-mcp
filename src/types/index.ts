@@ -74,3 +74,44 @@ export const RestartLSPServerArgsSchema = z.object({
 export const StartLSPArgsSchema = z.object({
   root_dir: z.string().describe("The root directory for the LSP server"),
 });
+
+export const GetDefinitionArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file`),
+  line: z.number().describe(`Line number`),
+  column: z.number().describe(`Column position`),
+});
+
+export const GetReferencesArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file`),
+  line: z.number().describe(`Line number`),
+  column: z.number().describe(`Column position`),
+  include_declaration: z.boolean().optional().describe(`Whether to include the declaration itself in the results. Defaults to true.`),
+});
+
+export const GetDocumentSymbolsArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file`),
+});
+
+export const GetWorkspaceSymbolsArgsSchema = z.object({
+  query: z.string().describe(`Symbol name query to search for across the whole workspace`),
+});
+
+export const RenameSymbolArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file`),
+  line: z.number().describe(`Line number`),
+  column: z.number().describe(`Column position`),
+  new_name: z.string().describe(`The new name for the symbol`),
+});
+
+export const FormatDocumentArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file`),
+  start_line: z.number().optional().describe(`Start line number of the range to format. Omit together with the other range fields to format the whole document.`),
+  start_column: z.number().optional().describe(`Start column position of the range to format.`),
+  end_line: z.number().optional().describe(`End line number of the range to format.`),
+  end_column: z.number().optional().describe(`End column position of the range to format.`),
+});
+
+export const ApplyCodeActionArgsSchema = z.object({
+  file_path: z.string().describe(`Path to the file the code action was requested for`),
+  code_action: z.record(z.string(), z.any()).describe(`The code action object exactly as returned by get_code_actions`),
+});

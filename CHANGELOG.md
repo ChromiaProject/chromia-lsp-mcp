@@ -5,6 +5,20 @@ All notable changes to `@chromia/chromia-lsp-mcp` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `get_definition` tool: go-to-definition via `textDocument/definition`.
+- `get_references` tool: find all references via `textDocument/references`.
+- `get_document_symbols` tool: file outline via `textDocument/documentSymbol`.
+- `get_workspace_symbols` tool: project-wide symbol search via `workspace/symbol`.
+- `rename_symbol` tool: renames a symbol via `textDocument/rename` and writes the resulting edit to every affected file on disk.
+- `format_document` tool: formats a whole file or a range within it via `textDocument/formatting` / `textDocument/rangeFormatting` and writes the result to disk.
+- `apply_code_action` tool: applies a code action returned by `get_code_actions` — resolving it via `codeAction/resolve` if needed, writing its edit to disk, and running its command via `workspace/executeCommand`.
+
+### Fixed
+- Declaring `workspace` client capabilities without an explicit `workspaceFolders` boolean crashed the Rell language server with a `NullPointerException` on `initialize` (it unboxes `WorkspaceClientCapabilities.getWorkspaceFolders()` without a null check); the client now always sends `workspaceFolders: false`.
+
 ## [0.0.8] — 2026-08-06
 
 ### Changed

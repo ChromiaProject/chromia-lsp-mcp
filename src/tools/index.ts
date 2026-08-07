@@ -11,7 +11,14 @@ import {
   SetLogLevelArgsSchema,
   RestartLSPServerArgsSchema,
   StartLSPArgsSchema,
-  SaveDocumentArgsSchema} from "../types/index.js";
+  SaveDocumentArgsSchema,
+  GetDefinitionArgsSchema,
+  GetReferencesArgsSchema,
+  GetDocumentSymbolsArgsSchema,
+  GetWorkspaceSymbolsArgsSchema,
+  RenameSymbolArgsSchema,
+  FormatDocumentArgsSchema,
+  ApplyCodeActionArgsSchema} from "../types/index.js";
 import { LSPClient } from "../lspClient.js";
 import { debug, info, logError, setLogLevel } from "../logging/index.js";
 
@@ -131,6 +138,217 @@ export const registerTools = (
 
       return {
         content: [{ type: "text", text: JSON.stringify(codeActions, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "get_definition",
+    {
+      description: "Get the definition location(s) of the symbol at a specific location in a file via LSP go-to-definition. Use this to jump to where a function, variable, entity, or type is declared. Requires the file to be opened first.",
+      inputSchema: GetDefinitionArgsSchema
+    },
+    async (args) => {
+      debug(`Getting definition in file: ${args.file_path} (${args.line}:${args.column})`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const locations = await lspClient!.getDefinition(fileUri, {
+        line: args.line - 1, // LSP is 0-based
+        character: args.column - 1
+      });
+
+      debug(`Returned ${locations.length} definition location(s)`);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(locations, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "get_references",
+    {
+      description: "Find all references to the symbol at a specific location in a file. Use this to find every place a function, variable, entity, or type is used across the workspace. Requires the file to be opened first.",
+      inputSchema: GetReferencesArgsSchema
+    },
+    async (args) => {
+      debug(`Getting references in file: ${args.file_path} (${args.line}:${args.column})`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const locations = await lspClient!.getReferences(fileUri, {
+        line: args.line - 1, // LSP is 0-based
+        character: args.column - 1
+      }, args.include_declaration ?? true);
+
+      debug(`Returned ${locations.length} reference(s)`);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(locations, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "get_document_symbols",
+    {
+      description: "Get an outline of the symbols (functions, entities, structs, etc.) declared in a file. Use this to understand a file's shape without reading the whole file. Requires the file to be opened first.",
+      inputSchema: GetDocumentSymbolsArgsSchema
+    },
+    async (args) => {
+      debug(`Getting document symbols for file: ${args.file_path}`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const symbols = await lspClient!.getDocumentSymbols(fileUri);
+
+      debug(`Returned ${symbols.length} document symbol(s)`);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(symbols, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "get_workspace_symbols",
+    {
+      description: "Search for symbols by name across the entire workspace, not just a single file. Use this to locate a function, entity, or type when you don't know which file it's in.",
+      inputSchema: GetWorkspaceSymbolsArgsSchema
+    },
+    async (args) => {
+      debug(`Getting workspace symbols for query: ${args.query}`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const symbols = await lspClient!.getWorkspaceSymbols(args.query);
+
+      debug(`Returned ${symbols.length} workspace symbol(s)`);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(symbols, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "rename_symbol",
+    {
+      description: "Rename the symbol at a specific location and apply the resulting edit across every file it touches, writing the changes to disk. Use this instead of a manual find-and-replace for renaming functions, variables, entities, or types. Requires the file to be opened first.",
+      inputSchema: RenameSymbolArgsSchema
+    },
+    async (args) => {
+      debug(`Renaming symbol in file: ${args.file_path} (${args.line}:${args.column}) to "${args.new_name}"`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const edit = await lspClient!.rename(fileUri, {
+        line: args.line - 1, // LSP is 0-based
+        character: args.column - 1
+      }, args.new_name);
+
+      if (!edit) {
+        return {
+          content: [{ type: "text", text: "Rename failed: the server returned no edit. The position may not be a renameable symbol." }],
+        };
+      }
+
+      const results = await lspClient!.applyWorkspaceEdit(edit);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "format_document",
+    {
+      description: "Format a file, or a specific range within it, and write the result to disk. Provide all four range fields to format only that range; omit them all to format the whole document. Requires the file to be opened first.",
+      inputSchema: FormatDocumentArgsSchema
+    },
+    async (args) => {
+      debug(`Formatting document: ${args.file_path}`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const hasRange = args.start_line !== undefined && args.start_column !== undefined
+        && args.end_line !== undefined && args.end_column !== undefined;
+
+      const edits = hasRange
+        ? await lspClient!.formatRange(fileUri, {
+          start: { line: args.start_line! - 1, character: args.start_column! - 1 },
+          end: { line: args.end_line! - 1, character: args.end_column! - 1 }
+        })
+        : await lspClient!.formatDocument(fileUri);
+
+      if (edits.length === 0) {
+        return {
+          content: [{ type: "text", text: "No formatting changes were returned by the server." }],
+        };
+      }
+
+      const results = await lspClient!.applyWorkspaceEdit({ changes: { [fileUri]: edits } });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+      };
+    }
+  );
+
+  mcpServer.registerTool(
+    "apply_code_action",
+    {
+      description: "Apply a code action returned by get_code_actions: resolves it if needed, writes any resulting edit to disk, and runs its command if it has one. Requires the file to be opened first.",
+      inputSchema: ApplyCodeActionArgsSchema
+    },
+    async (args) => {
+      debug(`Applying code action to file: ${args.file_path}`);
+
+      const lspClient = getLspClient();
+      checkLspClientInitialized(lspClient);
+
+      const fileContent = await fs.readFile(args.file_path, 'utf-8');
+      const fileUri = createFileUri(args.file_path);
+
+      await lspClient!.openDocument(fileUri, fileContent);
+
+      const result = await lspClient!.applyCodeAction(args.code_action);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     }
   );

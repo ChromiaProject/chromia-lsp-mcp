@@ -1,6 +1,8 @@
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import path from "path";
 import { PassThrough } from "stream";
+import * as fs from "fs/promises";
+import { fileURLToPath } from "url";
 import {
   createMessageConnection,
   MessageConnection,
@@ -10,6 +12,51 @@ import {
 import { DiagnosticUpdateCallback, LoggingLevel } from "./types/index.js";
 import { debug, info, notice, warning, log, logError } from "./logging/index.js";
 import { resolveLspServer, LspServerLaunch } from "./downloader/index.js";
+
+interface LspPosition {
+  line: number;
+  character: number;
+}
+
+interface LspRange {
+  start: LspPosition;
+  end: LspPosition;
+}
+
+interface LspTextEdit {
+  range: LspRange;
+  newText: string;
+}
+
+// Converts an LSP line/character position into an absolute string offset. Positions and
+// content must come from the same snapshot of the file: offsets computed against one
+// version of the text are meaningless against another.
+function positionToOffset(content: string, position: LspPosition): number {
+  const lines = content.split('\n');
+  let offset = 0;
+  for (let i = 0; i < position.line; i++) {
+    offset += (lines[i]?.length ?? 0) + 1; // +1 for the newline consumed between lines
+  }
+  return offset + position.character;
+}
+
+// Applies a set of non-overlapping TextEdits to content. Edits are resolved to offsets
+// against the original content, then applied from the last offset to the first so that
+// earlier edits' offsets stay valid as later (rightward) edits mutate the string.
+function applyTextEdits(content: string, edits: LspTextEdit[]): string {
+  const withOffsets = edits.map(edit => ({
+    edit,
+    start: positionToOffset(content, edit.range.start),
+    end: positionToOffset(content, edit.range.end),
+  }));
+  withOffsets.sort((a, b) => b.start - a.start);
+
+  let result = content;
+  for (const { edit, start, end } of withOffsets) {
+    result = result.slice(0, start) + edit.newText + result.slice(end);
+  }
+  return result;
+}
 
 // The Rell LSP server may write non-LSP output to stdout before its first framed
 // message (e.g. the kotlin-logging banner), which would otherwise desync
@@ -99,6 +146,10 @@ export class LSPClient {
         new StreamMessageWriter(this.process.stdin)
       );
       this.connection.onNotification((method: string, params: any) => this.handleNotification(method, params));
+      this.connection.onRequest("workspace/applyEdit", async (params: any) => {
+        const results = await this.applyWorkspaceEdit(params?.edit ?? {});
+        return { applied: results.every(r => r.applied) };
+      });
       this.connection.onError(([error]: [Error, unknown, number | undefined]) =>
         logError(`LSP connection error: ${error?.message ?? String(error)}`));
       this.connection.onClose(() => debug("LSP connection closed"));
@@ -245,7 +296,22 @@ export class LSPClient {
               tagSupport: {},
               codeDescriptionSupport: true,
               dataSupport: true
-            }
+            },
+            definition: {},
+            references: {},
+            documentSymbol: {},
+            formatting: {},
+            rangeFormatting: {},
+            // The server only advertises renameProvider when this capability is present.
+            rename: { prepareSupport: true }
+          },
+          workspace: {
+            // Must be a real boolean: the server unboxes it (WorkspaceClientCapabilities
+            // .getWorkspaceFolders()) without a null check and throws NPE if omitted.
+            workspaceFolders: false,
+            symbol: {},
+            applyEdit: true,
+            workspaceEdit: { documentChanges: true }
           }
         }
       }, 60000);
@@ -478,6 +544,233 @@ export class LSPClient {
     }
 
     return [];
+  }
+
+  async getDefinition(uri: string, position: LspPosition): Promise<any[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Getting definition at location: ${uri} (${position.line}:${position.character})`);
+
+    try {
+      const response = await this.sendRequest<any>("textDocument/definition", {
+        textDocument: { uri },
+        position
+      });
+
+      if (Array.isArray(response)) return response;
+      if (response) return [response];
+    } catch (error) {
+      warning(`Error getting definition: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  async getReferences(uri: string, position: LspPosition, includeDeclaration: boolean = true): Promise<any[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Getting references at location: ${uri} (${position.line}:${position.character})`);
+
+    try {
+      const response = await this.sendRequest<any>("textDocument/references", {
+        textDocument: { uri },
+        position,
+        context: { includeDeclaration }
+      });
+
+      if (Array.isArray(response)) return response;
+    } catch (error) {
+      warning(`Error getting references: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  async getDocumentSymbols(uri: string): Promise<any[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Getting document symbols: ${uri}`);
+
+    try {
+      const response = await this.sendRequest<any>("textDocument/documentSymbol", {
+        textDocument: { uri }
+      });
+
+      if (Array.isArray(response)) return response;
+    } catch (error) {
+      warning(`Error getting document symbols: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  async getWorkspaceSymbols(query: string): Promise<any[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Getting workspace symbols for query: ${query}`);
+
+    try {
+      const response = await this.sendRequest<any>("workspace/symbol", { query });
+
+      if (Array.isArray(response)) return response;
+    } catch (error) {
+      warning(`Error getting workspace symbols: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  // Requests a rename edit from the server. Does not apply it — callers apply the
+  // returned WorkspaceEdit via applyWorkspaceEdit.
+  async rename(uri: string, position: LspPosition, newName: string): Promise<any> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Renaming symbol at ${uri} (${position.line}:${position.character}) to "${newName}"`);
+
+    try {
+      return await this.sendRequest<any>("textDocument/rename", {
+        textDocument: { uri },
+        position,
+        newName
+      });
+    } catch (error) {
+      warning(`Error renaming symbol: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  async formatDocument(uri: string): Promise<LspTextEdit[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Formatting document: ${uri}`);
+
+    try {
+      const response = await this.sendRequest<any>("textDocument/formatting", {
+        textDocument: { uri },
+        options: { tabSize: 4, insertSpaces: true }
+      });
+
+      if (Array.isArray(response)) return response;
+    } catch (error) {
+      warning(`Error formatting document: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  async formatRange(uri: string, range: LspRange): Promise<LspTextEdit[]> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    debug(`Formatting range: ${uri} (${range.start.line}:${range.start.character} to ${range.end.line}:${range.end.character})`);
+
+    try {
+      const response = await this.sendRequest<any>("textDocument/rangeFormatting", {
+        textDocument: { uri },
+        range,
+        options: { tabSize: 4, insertSpaces: true }
+      });
+
+      if (Array.isArray(response)) return response;
+    } catch (error) {
+      warning(`Error formatting range: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return [];
+  }
+
+  // Applies a WorkspaceEdit (as returned by rename, or embedded in a code action) directly
+  // to disk. Content is read fresh from disk rather than tracked in memory, matching how
+  // openDocument/tools already source document text. Any file with edits that is currently
+  // open in the LSP is resynced via openDocument so the server's view doesn't go stale.
+  async applyWorkspaceEdit(edit: { changes?: Record<string, LspTextEdit[]>, documentChanges?: any[] }): Promise<{ uri: string, applied: boolean }[]> {
+    const changesByUri: Record<string, LspTextEdit[]> = { ...(edit.changes ?? {}) };
+
+    for (const change of edit.documentChanges ?? []) {
+      if (change?.textDocument?.uri && Array.isArray(change.edits)) {
+        const uri = change.textDocument.uri;
+        changesByUri[uri] = [...(changesByUri[uri] ?? []), ...change.edits];
+      } else {
+        warning(`Unsupported document change in workspace edit (kind: ${change?.kind ?? 'unknown'}); skipping`);
+      }
+    }
+
+    const results: { uri: string, applied: boolean }[] = [];
+
+    for (const [uri, edits] of Object.entries(changesByUri)) {
+      try {
+        const filePath = fileURLToPath(uri);
+        const content = await fs.readFile(filePath, 'utf-8');
+        const newContent = applyTextEdits(content, edits);
+        await fs.writeFile(filePath, newContent, 'utf-8');
+
+        if (this.openedDocuments.has(uri)) {
+          await this.openDocument(uri, newContent);
+        }
+
+        debug(`Applied ${edits.length} edit(s) to ${uri}`);
+        results.push({ uri, applied: true });
+      } catch (error) {
+        logError(`Error applying edit to ${uri}: ${error instanceof Error ? error.message : String(error)}`);
+        results.push({ uri, applied: false });
+      }
+    }
+
+    return results;
+  }
+
+  // Applies a CodeAction (or bare Command) exactly as returned by getCodeActions: resolves
+  // it first if the server marked it resolve-needed (edit absent, data present), applies any
+  // edit to disk, then runs the command if one is attached.
+  async applyCodeAction(codeAction: any): Promise<{ applied: boolean, changedFiles: string[], commandExecuted: boolean }> {
+    if (!this.initialized) {
+      throw new Error("LSP client not initialized. Please call start_lsp first.");
+    }
+
+    const isBareCommand = codeAction && typeof codeAction.command === 'string';
+    let edit = isBareCommand ? undefined : codeAction?.edit;
+    let command = isBareCommand ? codeAction : codeAction?.command;
+
+    if (!isBareCommand && !edit && codeAction?.data !== undefined) {
+      try {
+        const resolved = await this.sendRequest<any>("codeAction/resolve", codeAction);
+        edit = resolved?.edit ?? edit;
+        command = resolved?.command ?? command;
+      } catch (error) {
+        warning(`Error resolving code action: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const changedFiles: string[] = [];
+    if (edit) {
+      const results = await this.applyWorkspaceEdit(edit);
+      changedFiles.push(...results.filter(r => r.applied).map(r => r.uri));
+    }
+
+    let commandExecuted = false;
+    if (command?.command) {
+      try {
+        await this.sendRequest("workspace/executeCommand", { command: command.command, arguments: command.arguments });
+        commandExecuted = true;
+      } catch (error) {
+        warning(`Error executing command ${command.command}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    return { applied: changedFiles.length > 0 || commandExecuted, changedFiles, commandExecuted };
   }
 
   async shutdown(): Promise<void> {

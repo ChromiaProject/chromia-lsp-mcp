@@ -63,6 +63,8 @@ Resources are analogous: handler in `getResourceHandlers`, template in `getResou
 
 ## Release flow (GitLab CI)
 
+Before triggering `release-patch` / `release-minor`, update `CHANGELOG.md`: add a new `## [x.y.z] — YYYY-MM-DD` entry (Keep a Changelog format, `Added`/`Changed`/`Fixed` sections) summarizing what merged since the last entry, and commit it on `dev` (or `support/*`) first. The release jobs bump and tag `package.json` but do not touch the changelog themselves.
+
 Version bumps are not done by hand. The manual `release-patch` / `release-minor` jobs on `dev` (or `support/*`) bump `package.json`, commit, and push a tag. `deploy-npm` is a manual job gated on the tag matching `package.json` version exactly. CI builds and tests inside a node22-java21 image.
 
 ## Docs
