@@ -147,7 +147,11 @@ release-patch:
 
       echo "Updating package.json version to $NEXT_VERSION"
       pnpm version $NEXT_VERSION --no-git-tag-version
-      git add package.json pnpm-lock.yaml
+
+      echo "Finalizing CHANGELOG.md for $NEXT_VERSION"
+      node scripts/finalize-changelog.mjs "$CURRENT_VERSION" "$NEXT_VERSION"
+
+      git add package.json pnpm-lock.yaml CHANGELOG.md
       git commit -m "chore: bump version to $NEXT_VERSION"
 
       echo "Creating and pushing tag v$NEXT_VERSION"
@@ -171,7 +175,11 @@ release-minor:
 
       echo "Updating package.json version to $NEXT_VERSION"
       pnpm version $NEXT_VERSION --no-git-tag-version
-      git add package.json pnpm-lock.yaml
+
+      echo "Finalizing CHANGELOG.md for $NEXT_VERSION"
+      node scripts/finalize-changelog.mjs "$CURRENT_VERSION" "$NEXT_VERSION"
+
+      git add package.json pnpm-lock.yaml CHANGELOG.md
       git commit -m "chore: bump version to $NEXT_VERSION"
 
       echo "Creating and pushing tag v$NEXT_VERSION"
