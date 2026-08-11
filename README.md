@@ -2,6 +2,9 @@
 
 A Model Context Protocol (MCP) server that provides access to Rell Language Server Protocol (LSP) capabilities through AI assistants.
 
+> **The canonical repository is hosted on GitLab: [gitlab.com/chromaway/core-tools/chromia-lsp-mcp](https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp).**
+> Latest versions of this project are published to GitLab's npm registry; the [npmjs.org package](https://www.npmjs.com/package/@chromia/chromia-lsp-mcp) is stale and should not be used.
+
 ## Documentation
 
 - [Introduction](./docs/Introduction.md)
@@ -27,7 +30,19 @@ The server automatically downloads and manages the Rell LSP server, eliminating 
 
 ## Installation
 
-The MCP server is published to npm as [`@chromia/chromia-lsp-mcp`](https://www.npmjs.com/package/@chromia/chromia-lsp-mcp).
+The MCP server is published to this project's GitLab npm registry (not npmjs.org) as `@chromia/chromia-lsp-mcp`. Before installing, map the `@chromia` scope to it:
+
+```sh
+npm config set @chromia:registry https://gitlab.com/api/v4/projects/74441198/packages/npm/
+```
+
+This is a one-time step: it writes to `~/.npmrc`, which npx, pnpm, and bun all read.
+
+On a machine with only Bun installed, open `~/.npmrc` in an editor instead and add the line by hand:
+
+```
+@chromia:registry=https://gitlab.com/api/v4/projects/74441198/packages/npm/
+```
 
 ### Claude Code
 

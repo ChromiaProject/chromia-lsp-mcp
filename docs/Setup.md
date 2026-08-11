@@ -87,7 +87,13 @@ The package is published to this project's GitLab npm registry (not npmjs.org), 
 npm config set @chromia:registry https://gitlab.com/api/v4/projects/74441198/packages/npm/
 ```
 
-This is a one-time step: it writes to `~/.npmrc`, which npx, pnpm, and bun all read. The project is public, so no auth token is needed.
+This is a one-time step: it writes to `~/.npmrc`, which npx, pnpm, and bun all read. On a machine with only Bun installed (no `npm` binary — Bun has no equivalent command), open `~/.npmrc` in an editor instead and add the line by hand:
+
+```
+@chromia:registry=https://gitlab.com/api/v4/projects/74441198/packages/npm/
+```
+
+The project is public, so no auth token is needed.
 
 **npx:**
 ```bash
