@@ -1,191 +1,66 @@
 include:
   - project: chromaway/core-infra/gitlab-automation
-    ref: 1.1.6
+    ref: 1.3.9
     file:
       - templates/release.yml
       - templates/container-dependency-scanning.yml
 
-image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
+image: registry.gitlab.com/chromaway/core-tools/chromia-images/graal21:1.0.0@sha256:8dcf858d21703b3bfef2c6a31e399cad7c9def1e625bd0c3c302cbcd7fa1564c
 
 stages:
   - build
-  - release
   - deploy
+  - dependency-check
+  - release
 
 variables:
-  NODE_VERSION: "22"
-  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
 
 cache:
   key:
     files:
-      - pnpm-lock.yaml
+      - gradle/libs.versions.toml
+      - gradle/wrapper/gradle-wrapper.properties
   paths:
-    - node_modules/
-    - .npm/
-    - .pnpm-store
+    - .gradle/caches
+    - .gradle/wrapper
 
-.install_dependencies: &install_dependencies
-  before_script:
-    - npm install -g pnpm
-    - pnpm install --frozen-lockfile
-
+# Compiles and runs the whole suite, integration tests included: they drive a real Rell
+# language server, which Gradle resolves as the `rellLsp` dependency.
 build:
   stage: build
-  <<: *install_dependencies
+  interruptible: true
   script:
-    - pnpm run build
-    - pnpm run test
-  coverage: '/Lines\s*:\s*(\d+\.\d+)%/'
+    - ./gradlew build
   artifacts:
-    paths:
-      - dist/
+    when: always
     reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage/cobertura-coverage.xml
-    expire_in: 1 day
+      junit: build/test-results/test/TEST-*.xml
+    expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
 
-deploy-npm:
-  stage: release
-  <<: *install_dependencies
-  variables:
-    NPM_TOKEN: $NPM_TOKEN
-  before_script:
-    - pnpm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
-    - pnpm whoami
-  script:
-    - |
-      PACKAGE_VERSION=$(node -p "require('./package.json').version")
-      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
-        echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
-        exit 1
-      fi
-    - pnpm pack --dry-run
-    - pnpm publish --access public
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
-  when: manual
-
-deploy-npm-dry-run:
-  stage: release
-  <<: *install_dependencies
-  variables:
-    NPM_TOKEN: $NPM_TOKEN
-  before_script:
-    - pnpm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
-    - pnpm whoami
-  script:
-    - |
-      PACKAGE_VERSION=$(node -p "require('./package.json').version")
-      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
-        echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
-        exit 1
-      fi
-    - pnpm pack --dry-run
-    - pnpm publish --dry-run
+# Triggered by a semver tag pushed by release-patch / release-minor.
+# Jib assembles the linux/amd64 and linux/arm64 images and pushes them straight to the registry,
+# so this needs no Docker daemon, no dind service, and no privileged runner.
+deploy:
+  stage: deploy
   rules:
     - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
-  when: manual
-
-deploy-npm-gitlab:
-  stage: release
-  <<: *install_dependencies
   script:
-    - |
-      PACKAGE_VERSION=$(node -p "require('./package.json').version")
-      if [ "$PACKAGE_VERSION" != "$CI_COMMIT_TAG" ]; then
-        echo "Error: package.json version ($PACKAGE_VERSION) does not match git tag ($CI_COMMIT_TAG)"
-        exit 1
-      fi
-    - pnpm config set @chromia:registry "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
-    - pnpm config set "${CI_API_V4_URL#https:}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken" "${CI_JOB_TOKEN}"
-    - pnpm pack --dry-run
-    # --no-git-checks: tag pipelines run on a detached HEAD, which pnpm's branch check rejects
-    - pnpm publish --no-git-checks
-  # Runs automatically on release tags (pushed by the release-patch/release-minor jobs),
-  # once build succeeds. Publishing to npmjs.com (deploy-npm) stays manual.
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
+    - ./gradlew jib -Pversion=$CI_COMMIT_TAG -PimageTags=$CI_COMMIT_TAG,latest
+    - echo "Pushed $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG and :latest"
 
-# Cross-builds jlink runtime bundles of the Rell LSP for all supported platforms and
-# publishes them to this project's generic package registry. Runs from a scheduled
-# pipeline (create one in CI/CD > Schedules) to pick up new LSP releases automatically,
-# or manually with RELL_LSP_VERSION set to backfill a specific version. Idempotent:
-# exits early when the version's bundles are already published.
-build-lsp-runtimes:
-  stage: deploy
-  # Not the project's node image: that one is Alpine (musl), and the downloaded Temurin
-  # jdeps/jlink are glibc binaries. This job needs no node either way — just bash/curl/tar.
-  image: debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
-  cache: []
-  dependencies: []
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq curl ca-certificates
-  script:
-    - ./scripts/build-jlink-bundles.sh
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
-
-release-patch:
-  extends: .release
-  stage: release
-  script:
-    - apk add --no-cache nodejs npm
-    - npm install -g pnpm
-    - |
-      NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-      echo "Current version is $CURRENT_VERSION"
-      echo "Will create new version $NEXT_VERSION"
-
-      echo "Updating package.json version to $NEXT_VERSION"
-      pnpm version $NEXT_VERSION --no-git-tag-version
-
-      echo "Finalizing CHANGELOG.md for $NEXT_VERSION"
-      node scripts/finalize-changelog.mjs "$CURRENT_VERSION" "$NEXT_VERSION"
-
-      git add package.json pnpm-lock.yaml CHANGELOG.md
-      git commit -m "chore: bump version to $NEXT_VERSION"
-
-      echo "Creating and pushing tag v$NEXT_VERSION"
-      git tag $NEXT_VERSION
-      git push origin $CI_COMMIT_REF_NAME
-      git push --tags
+container-scanning:
+  variables:
+    REGISTRY: registry.gitlab.com/chromaway/core-tools
+  parallel:
+    matrix:
+      - IMAGE: [ chromia-lsp-mcp ]
+        VERSION: [ latest ]
   only:
-    - dev
-    - /^support\/.*$/
-
-release-minor:
-  extends: .release
-  stage: release
-  script:
-    - apk add --no-cache nodejs npm
-    - npm install -g pnpm
-    - |
-      NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
-      echo "Current version is $CURRENT_VERSION"
-      echo "Will create new version $NEXT_VERSION"
-
-      echo "Updating package.json version to $NEXT_VERSION"
-      pnpm version $NEXT_VERSION --no-git-tag-version
-
-      echo "Finalizing CHANGELOG.md for $NEXT_VERSION"
-      node scripts/finalize-changelog.mjs "$CURRENT_VERSION" "$NEXT_VERSION"
-
-      git add package.json pnpm-lock.yaml CHANGELOG.md
-      git commit -m "chore: bump version to $NEXT_VERSION"
-
-      echo "Creating and pushing tag v$NEXT_VERSION"
-      git tag $NEXT_VERSION
-      git push origin $CI_COMMIT_REF_NAME
-      git push --tags
-  only:
-    - dev
-    - /^support\/.*$/
+    variables:
+      - $RUN_DEPENDENCY_CHECK == "true"

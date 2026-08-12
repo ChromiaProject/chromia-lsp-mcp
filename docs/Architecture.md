@@ -1,314 +1,82 @@
-# Technical Architecture & Codebase
+# Architecture
 
-## High-Level Architecture Description
-
-LSP MCP Server for Rell follows a modular architecture with separation between protocol layer, tool/resource handlers, LSP client layer, and external process management
-
-**Architecture Layers:**
-
-1. **MCP Protocol Layer** - Handles MCP protocol communication (stdio), tool/resource/prompt registration, and request/response formatting
-2. **Handler Layer** - Routes tool calls and resource requests to appropriate handler implementations
-3. **LSP Client Layer** - Manages LSP protocol communication, document state, and diagnostic subscriptions
-4. **Process Management Layer** - Handles LSP server JAR download, caching, and Java subprocess spawning
-5. **External Process Layer** - Rell LSP server (Java process) that provides language-specific features
-
-**Key Architectural:**
-
-- **Stateless design** - No server-side persistence except cached JAR files. Each session is independent.
-- **Modular handler pattern** - Each tool/resource has a dedicated handler, making features easy to add and test independently.
-- **LSP protocol abstraction** - LSPClient abstracts LSP protocol details, providing clean API for handlers.
-- **Automatic dependency management** - LSP server JAR is automatically downloaded and cached, eliminating manual setup.
-- **Resource and tool management** - Supports both tool-based and resource-based access patterns for flexibility.
-
-## Major Components and Responsibilities
-
-### 1. Entry Point (`index.ts`)
-
-**Responsibility:** Application bootstrap, MCP server initialization, and protocol setup.
-
-**Key Functions:**
-- `runServer()`: Creates MCP server, sets up request handlers, and connects via stdio transport
-- Server configuration: Defines server name, version, and capabilities (tools, resources, prompts, logging)
-- Request handler registration: Registers handlers for tools, resources, prompts, and logging
-- Process lifecycle: Handles cleanup on exit and uncaught exceptions
-
-**Why it matters:** Centralizes server configuration and protocol setup. Single entry point for MCP protocol communication.
-
-**Key Dependencies:**
-- `LSPClient` - Provides LSP protocol communication
-- `getToolHandlers` - Provides tool implementations
-- `getResourceHandlers` - Provides resource implementations
-- `getPromptHandlers` - Provides prompt implementations
-
-### 2. LSP Client (`src/lspClient.ts`)
-
-**Responsibility:** Manages LSP protocol communication and document state.
-
-**Key Components:**
-- **Process Management:** Spawns and manages Java subprocess for Rell LSP server
-- **Message Handling:** Parses LSP protocol messages (JSON-RPC over stdio)
-- **Document State:** Tracks open documents, versions, and diagnostics
-- **Request/Response:** Sends LSP requests and handles responses with timeout support
-- **Notification Handling:** Processes LSP notifications (diagnostics, etc.)
-- **Subscription Management:** Manages diagnostic update callbacks
-
-**Key Methods:**
-- `initialize(rootDirectory)`: Starts LSP server process and sends initialize request
-- `openDocument(uri, text)`: Opens or updates document in LSP server
-- `closeDocument(uri)`: Closes document in LSP server
-- `getInfoOnLocation(uri, position)`: Gets hover information at position
-- `getCompletion(uri, position)`: Gets code completions at position
-- `getCodeActions(uri, range)`: Gets code actions for range
-- `getDiagnostics(uri)`: Gets cached diagnostics for file
-- `subscribeToDiagnostics(callback)`: Subscribes to diagnostic updates
-- `restart(rootDirectory?)`: Restarts LSP server process
-
-**Why it matters:** Encapsulates all LSP protocol complexity. Provides clean API for tool/resource handlers.
-
-**Protocol Details:**
-- Uses JSON-RPC 2.0 over stdio
-- Handles message buffering and parsing
-- Converts between 1-based (tool parameters) and 0-based (LSP protocol) positions
-
-### 3. Tool Handlers (`src/tools/index.ts`)
-
-**Responsibility:** Implements MCP tool handlers for LSP features.
-
-**Key Tool Handlers:**
-
-**`get_info_on_location`** - Gets hover information at location
-- Extracts `file_path`, `line`, `column` parameters
-- Reads file content, opens document if needed
-- Calls `lspClient.getInfoOnLocation()`
-- Returns hover text
-
-**`get_completions`** - Gets completion suggestions
-- Extracts `file_path`, `line`, `column` parameters
-- Reads file content, opens document if needed
-- Calls `lspClient.getCompletion()`
-- Returns completion items as JSON
-
-**`get_code_actions`** - Gets code actions for range
-- Extracts `file_path`, `start_line`, `start_column`, `end_line`, `end_column` parameters
-- Reads file content, opens document if needed
-- Calls `lspClient.getCodeActions()`
-- Returns code actions as JSON
-
-**`start_lsp`** - Starts LSP server
-- Extracts `root_dir` parameter
-- Creates LSPClient if needed
-- Calls `lspClient.initialize()`
-- Returns success message
-
-**`restart_lsp_server`** - Restarts LSP server
-- Extracts optional `root_dir` parameter
-- Calls `lspClient.restart()`
-- Returns success message
-
-**`open_document`** - Opens file in LSP server
-- Extracts `file_path` parameter
-- Reads file content
-- Calls `lspClient.openDocument()`
-- Returns success message
-
-**`save_document`** - Saves file in LSP server
-- Extracts `file_path` parameter
-- Reads file content
-- Calls `lspClient.saveDocument()`
-- Returns success message
-
-**`close_document`** - Closes file in LSP server
-- Extracts `file_path` parameter
-- Calls `lspClient.closeDocument()`
-- Returns success message
-
-**`get_diagnostics`** - Gets diagnostics
-- Extracts optional `file_path` parameter
-- If file_path provided, verifies file is open
-- Calls `lspClient.getDiagnostics()` or `getAllDiagnostics()`
-- Returns diagnostics as JSON
-
-**`set_log_level`** - Sets logging level
-- Extracts `level` parameter
-- Calls `setLogLevel()` from logging module
-- Returns success message
-
-**Why it matters:** Separation of concerns. Each tool's logic is isolated, making it easy to modify or test individual tools.
-
-**Parameter Validation:**
-- Uses Zod schemas for type-safe parameter validation
-- Schemas are converted to JSON Schema for MCP tool definitions
-- Invalid parameters result in clear error messages
-
-### 4. Resource Handlers (`src/resources/index.ts`)
-
-**Responsibility:** Implements MCP resource handlers for URI-based LSP access.
-
-**Key Resource Handlers:**
-
-**`lsp-diagnostics://`** - Diagnostic resources
-- Parses URI to extract file path
-- If file path provided, verifies file is open
-- Returns diagnostics as JSON
-- Supports subscriptions for real-time updates
-
-**`lsp-hover://`** - Hover information resources
-- Parses URI to extract file path, line, column from query parameters
-- Reads and opens file if needed
-- Calls `lspClient.getInfoOnLocation()`
-- Returns hover text
-
-**`lsp-completions://`** - Completion resources
-- Parses URI to extract file path, line, column from query parameters
-- Reads and opens file if needed
-- Calls `lspClient.getCompletion()`
-- Returns completions as JSON
-
-**Subscription Handling:**
-- Diagnostic subscriptions create callbacks that send MCP `notifications/resources/update`
-- Callbacks are stored in subscription context for unsubscription
-- Subscriptions persist until explicitly unsubscribed
-
-### 5. LSP Server Downloader (`src/downloader/index.ts`)
-
-**Responsibility:** Manages Rell LSP server JAR download and caching.
-
-**Key Functions:**
-- `getLspServerPath(version?)`: Gets path to LSP server JAR, downloading if needed
-- `fetchLatestVersion()`: Queries GitLab Maven registry for latest version
-- `downloadVersion(version)`: Downloads specific version if not cached
-- `getLocalVersions()`: Lists all cached versions
-- `getLatestLocalVersion()`: Gets latest cached version
-
-**Download Process:**
-1. Check if version is specified
-2. If specified, check cache for that version
-3. If not cached, download from GitLab Maven registry
-4. If no version specified, check for cached versions
-5. If no cached versions, query GitLab for latest and download
-
-**Caching:**
-- JAR files cached in `~/.chromia/lsp-mcp/`
-- Filename format: `rell-toolbox-language-server-{version}-all.jar`
-- Cache persists across sessions
-
-**Why it matters:** Eliminates manual LSP server setup. Automatically manages dependencies.
-
-### 6. Logging System (`src/logging/index.ts`)
-
-**Responsibility:** Provides comprehensive logging with multiple severity levels.
-
-**Key Features:**
-- **8 Severity Levels:** debug, info, notice, warning, error, critical, alert, emergency
-- **Color-coded Console Output:** Different colors for each severity level
-- **MCP Notifications:** Sends log messages to MCP clients via notifications
-- **Runtime Configuration:** Log level can be changed via `set_log_level` tool
-- **Console Override:** Overrides console.log/warn/error to use logging system
-
-**Log Level Priority:**
-- Messages are filtered based on current log level
-- Higher priority levels (error, critical, etc.) are always shown
-- Lower priority levels (debug) are filtered when level is set higher
-
-### 7. Prompt Handlers (`src/prompts/index.ts`)
-
-**Responsibility:** Provides helpful prompts for AI assistants.
-
-**Key Prompts:**
-
-**`lsp_guide`** - Guide on using LSP functions
-- Explains how to use LSP tools
-- Provides workflow examples
-- Documents tool usage patterns
-
-**Why it matters:** Helps AI assistants understand how to use the server effectively.
-
-## How Components Communicate
-
-### Request Flow
+The server is a thin, stateful bridge between two protocols. MCP comes in on stdio from the
+client; LSP goes out on stdio to a Rell language server running as a child process. Everything
+else is bookkeeping around that.
 
 ```
-MCP Client (AI Assistant)
-    ↓
-MCP Protocol (JSON-RPC over stdio)
-    ↓
-index.ts (Server Setup)
-    ↓
-Request Handler (Tool/Resource/Prompt)
-    ↓
-Handler Implementation (tools/index.ts or resources/index.ts)
-    ↓
-Parameter Extraction & Validation (Zod schemas)
-    ↓
-LSPClient (lspClient.ts)
-    ↓
-LSP Protocol (JSON-RPC over stdio)
-    ↓
-Rell LSP Server (Java process)
-    ↓
-Response flows back through chain
-    ↓
-MCP Client receives structured response
+MCP client  ──stdio──▶  Server (Kotlin)  ──stdio──▶  Rell language server (Java)
+                          │
+                          ├─ tools      (17, registered on the MCP SDK's Server)
+                          ├─ resources  (diagnostics, hover, completions)
+                          └─ prompts    (lsp_guide)
 ```
 
-### Component Interaction Details
+## Layers
 
-**Tool Execution:**
-1. MCP client sends `CallToolRequest` with tool name and arguments
-2. Server routes to tool handler based on tool name
-3. Handler validates arguments using Zod schema
-4. Handler calls LSPClient method with validated parameters
-5. LSPClient sends LSP request to Rell LSP server
-6. LSP server processes request and sends response
-7. LSPClient parses response and returns to handler
-8. Handler formats response as `CallToolResult`
-9. Server sends response to MCP client
+`Main.kt` builds the MCP server, wires it to stdio, and owns the process lifetime. Registration of
+tools, resources, and prompts happens in `mcp/`, all of it against a single `ServerContext` that
+holds the language server client and the current project root. `lsp/RellLspClient` owns the child
+process, the LSP handshake, document state, and the diagnostics cache. LSP4J does the JSON-RPC
+framing and gives typed models for every message.
 
-**Resource Access:**
-1. MCP client sends `ReadResourceRequest` with URI
-2. Server routes to resource handler based on URI scheme
-3. Handler parses URI to extract parameters
-4. Handler calls LSPClient method
-5. Response is formatted as resource content
-6. Server sends response to MCP client
+Requests flow one way: an MCP tool call is parsed into arguments, converted from 1-based editor
+coordinates to 0-based LSP ones, sent as an LSP request, and the reply is serialized back to JSON
+text as the tool result. Diagnostics flow the other way, pushed by the server as notifications.
 
-**Resource Subscription:**
-1. MCP client sends `SubscribeRequest` with URI
-2. Server routes to subscription handler
-3. Handler creates callback function
-4. Handler subscribes callback to LSPClient diagnostic notifications
-5. When LSP server sends diagnostic update, callback is invoked
-6. Callback sends MCP `notifications/resources/update` to client
-7. Client receives real-time updates
+## Decisions worth knowing
 
-**LSP Server Initialization:**
-1. Tool handler calls `lspClient.initialize(rootDir)`
-2. LSPClient checks if process exists, spawns if needed
-3. LSPClient calls downloader to get JAR path
-4. Downloader checks cache, downloads if needed
-5. LSPClient spawns Java process with JAR
-6. LSPClient sends LSP `initialize` request
-7. LSP server responds with capabilities
-8. LSPClient sends `initialized` notification
-9. LSP server is ready for use
+**The language server is a separate process.** Both sides are JVM code and could share one, but
+the Rell server brings its own Koin container, log4j configuration, and a large shaded dependency
+set. A child process keeps the classpaths apart, and its failures stay recoverable — that is what
+`restart_lsp_server` restarts.
 
-## Key Frameworks, Libraries, and Versions
+**Stdout belongs to the protocol alone.** `claimStdout()` takes file descriptor 1 for the MCP
+stream and repoints `System.out` at stderr before anything else runs. Libraries do print to
+stdout — kotlin-logging, which the MCP SDK logs through, announces itself there on first use —
+and any such line would be read as a JSON-RPC message and break the session. Everything humans
+read goes to stderr; the client gets the same messages as MCP log notifications.
 
-### Core Dependencies
+**The language server's own preamble is filtered.** It writes a logging banner to its stdout
+before the first LSP message, which would desync LSP4J's header parser.
+`PreambleFilteringInputStream` drops bytes up to the first `Content-Length:` and passes the rest
+through untouched.
 
-- **Node.js:** v16 or later (runtime requirement)
-- **TypeScript:** ^5.3.3 (compilation)
-- **MCP TypeScript SDK:** ^0.5.0 (`@modelcontextprotocol/sdk`)
-- **Zod:** ^3.22.4 (schema validation)
-- **zod-to-json-schema:** ^3.24.5 (schema conversion)
-- **axios:** ^1.12.0 (HTTP client for downloads)
-- **fs-extra:** ^11.3.1 (file system utilities)
-- **fast-xml-parser:** ^5.2.5 (Maven metadata parsing)
+**Coordinates convert in exactly one place.** MCP tool and resource arguments are 1-based;
+`position(line, column)` in `mcp/Arguments.kt` is where they become the 0-based positions LSP
+speaks. `RellLspClient` deals only in LSP coordinates.
 
-### Key Libraries Purpose
+**Read-only queries degrade to empty.** Hover, completions, code actions, symbols, and formatting
+return an empty result when the language server errors or times out (10 seconds; 60 for
+`initialize`, which covers JVM startup and project indexing). An empty result therefore means "no
+data, or the request failed" — turn the log level up to `debug` to tell the two apart.
 
-- **MCP TypeScript SDK:** Provides MCP protocol implementation, server infrastructure, tool/resource registration, stdio transport
-- **Zod:** Runtime type validation for tool parameters, schema definitions
-- **axios:** HTTP client for downloading LSP server JAR from GitLab Maven registry
-- **fs-extra:** File system operations for reading files and managing cache directory
-- **fast-xml-parser:** Parses Maven metadata XML to find latest LSP server version
+**Edits are written from disk, not from memory.** `applyWorkspaceEdit` re-reads each file, applies
+the edits right-to-left so earlier offsets stay valid, writes it back, and resyncs the language
+server's copy if the file is open. Nothing is cached in between, so edits made outside this
+process are never clobbered by a stale buffer.
+
+**Resource URIs are matched by scheme, not by path segments.** The SDK's default template matcher
+requires the URI and the template to have the same number of `/`-separated segments, which no
+absolute file path can satisfy. `SchemePrefixMatcher` matches on the scheme and hands the handler
+everything after `://`, which is how `lsp-hover:///a/b/c.rell?line=6&column=8` resolves.
+
+**Diagnostics subscriptions are handled here, not by the SDK.** The SDK's built-in subscription
+bookkeeping fires when a registered resource changes; diagnostics arrive as pushes from the
+language server instead. `Main.kt` replaces the subscribe and unsubscribe handlers with its own
+set and notifies subscribers when the language server republishes. Notifications carry only the
+URI, per the MCP spec — the client re-reads the resource to get the content.
+
+**Open documents appear as resources.** Opening or closing a document re-syncs the per-file
+`lsp-diagnostics://` resources so a client listing resources sees exactly the files the language
+server currently holds.
+
+## Packaging
+
+The image is built by Jib, which assembles it without a Docker daemon: base image, dependency
+layer, application classes, and the Rell language server JAR staged into `/opt/rell-lsp`. The
+language server version is a Gradle dependency (`gradle/libs.versions.toml`), so an image tag
+pins exactly one of them, recorded in the `com.chromaway.rell-lsp.version` image label.
+
+Adding a tool means one `addTool` call in `mcp/Tools.kt` — the schema and the handler live
+together, so there is no second place to keep in sync.
