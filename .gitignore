@@ -1,9 +1,6 @@
-dist-newstyle/
-node_modules/
-dist/
-.npm/
-.pnpm-store/
+build/
+.gradle/
+.kotlin/
 .mcp.json
 .DS_Store
 .idea
-build/
