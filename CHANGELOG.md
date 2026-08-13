@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-13
+
 ### Changed
 - Rewritten in Kotlin on the [MCP Kotlin SDK](https://github.com/modelcontextprotocol/kotlin-sdk) and [LSP4J](https://github.com/eclipse-lsp4j/lsp4j), replacing the TypeScript implementation. Tool names, arguments, and resource URIs are unchanged.
 - Distribution is now an OCI image published to this project's GitLab container registry, built with Jib for `linux/amd64` and `linux/arm64` on the organisation's `chromia-images/java21` base, mirroring how chromia-cli publishes `chr`. The npm package is no longer published.
@@ -123,7 +125,8 @@ Initial release, published as `@chromia/chromia-lsp-mcp`.
 - Integration test suite against a fixture Rell project.
 - GitLab CI pipeline publishing to the npm registry.
 
-[Unreleased]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.9...dev
+[Unreleased]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.1.0...dev
+[0.1.0]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.9...0.1.0
 [0.0.9]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.8...0.0.9
 [0.0.8]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.7...0.0.8
 [0.0.7]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.6...0.0.7
