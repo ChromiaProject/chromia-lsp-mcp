@@ -152,7 +152,9 @@ jib {
             "org.opencontainers.image.licenses" to "MIT",
             "com.chromia.rell-lsp.version" to libs.versions.rell.lsp.get(),
         )
-        format = com.google.cloud.tools.jib.api.buildplan.ImageFormat.OCI
+        // Docker V2.2, not OCI: Jib can only assemble a Docker manifest list for a
+        // multi-platform build, and fails with "Build an OCI image index is not yet
+        // supported" at the manifest step if the format is OCI.
         creationTime = sourceDate.get()
         filesModificationTime = sourceDate.get()
     }

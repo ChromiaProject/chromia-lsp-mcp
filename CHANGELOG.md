@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Rewritten in Kotlin on the [MCP Kotlin SDK](https://github.com/modelcontextprotocol/kotlin-sdk) and [LSP4J](https://github.com/eclipse-lsp4j/lsp4j), replacing the TypeScript implementation. Tool names, arguments, and resource URIs are unchanged.
-- Distribution is now an OCI image published to this project's GitLab container registry, built with Jib for `linux/amd64` and `linux/arm64` on the organisation's `chromia-images/java21` base, mirroring how chromia-cli publishes `chr`. The npm package is no longer published.
+- Distribution is now a container image published to this project's GitLab container registry, built with Jib for `linux/amd64` and `linux/arm64` on the organisation's `chromia-images/java21` base, mirroring how chromia-cli publishes `chr`. The npm package is no longer published.
 - Releases follow the shared `gitlab-automation` convention: the git tag is the version, so nothing bumps a version file any more. `scripts/finalize-changelog.sh` is now a local helper run during release prep rather than a CI step.
 - The Rell language server is baked into the image instead of being downloaded at runtime, so an image tag pins one language server version and startup needs no network. The runtime download, version resolution, and jlink runtime bundles are gone, along with the `build-lsp-runtimes` CI job.
 - `start_lsp` and `restart_lsp_server` now default their root directory to the working directory, which is the directory mounted into the container.

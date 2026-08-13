@@ -9,7 +9,7 @@ navigation, rename, quick fixes — as MCP tools and `lsp-*://` resources. Kotli
 SDK and LSP4J. It runs the Rell language server (`net.postchain.rell:rell-toolbox-language-server`)
 as a child process and speaks LSP to it over stdio.
 
-It ships as an OCI image, built by Jib and pushed to this project's GitLab container registry, with
+It ships as a container image, built by Jib and pushed to this project's GitLab container registry, with
 the language server JAR baked in at `/opt/rell-lsp/language-server.jar`. There is no npm package
 and no runtime download any more.
 
