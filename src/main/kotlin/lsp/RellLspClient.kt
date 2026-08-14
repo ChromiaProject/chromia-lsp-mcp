@@ -69,12 +69,23 @@ class RellLspClient(private val launch: LspLaunch) {
             startProcess()
 
             Log.info { "Initializing LSP connection with root directory: $rootDirectory" }
+            val chromiaConfigFiles = ChromiaSettings.nonDefaultConfigFileUris(rootDirectory)
+            if (chromiaConfigFiles.isNotEmpty()) {
+                Log.info { "Non-default Chromia settings files in scope: $chromiaConfigFiles" }
+            }
             val params = InitializeParams().apply {
                 processId = ProcessHandle.current().pid().toInt()
                 clientInfo = ClientInfo(CLIENT_NAME, CLIENT_VERSION)
                 @Suppress("DEPRECATION") // The Rell server reads rootUri; it does not use workspace folders.
                 rootUri = fileUri(rootDirectory)
                 capabilities = clientCapabilities()
+                if (chromiaConfigFiles.isNotEmpty()) {
+                    // Merged with the server's own by-name discovery of chromia.yml; anchors an
+                    // index root at each of these so a directory governed by a non-default
+                    // settings file (e.g. atbash.yml, no chromia.yml present) is analysed at that
+                    // file's declared compile.rellVersion instead of the server's default.
+                    initializationOptions = mapOf("chromiaConfigFiles" to chromiaConfigFiles)
+                }
             }
 
             // Covers JVM startup plus project indexing, which on a large project far exceeds the
