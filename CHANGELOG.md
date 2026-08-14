@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-08-14
+
 ### Added
 - Chromia settings-file resolution mirroring rell-jetbrains: a project governed by a non-`chromia.yml` settings file (e.g. `atbash.yml`, with no `chromia.yml` present) is now analysed at that file's declared `compile.rellVersion` instead of the language server's default.
 
@@ -128,7 +130,8 @@ Initial release, published as `@chromia/chromia-lsp-mcp`.
 - Integration test suite against a fixture Rell project.
 - GitLab CI pipeline publishing to the npm registry.
 
-[Unreleased]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.1.0...dev
+[Unreleased]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.1.1...dev
+[0.1.1]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.1.0...0.1.1
 [0.1.0]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.9...0.1.0
 [0.0.9]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.8...0.0.9
 [0.0.8]: https://gitlab.com/chromaway/core-tools/chromia-lsp-mcp/-/compare/0.0.7...0.0.8
