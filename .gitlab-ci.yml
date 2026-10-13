@@ -5,6 +5,11 @@ include:
       - templates/release.yml
       - templates/container-dependency-scanning.yml
 
+default:
+  tags:
+    - linux-medium-amd64
+    - chromaway
+
 image: registry.gitlab.com/chromaway/core-tools/chromia-images/graal21:1.0.0@sha256:8dcf858d21703b3bfef2c6a31e399cad7c9def1e625bd0c3c302cbcd7fa1564c
 
 stages:
