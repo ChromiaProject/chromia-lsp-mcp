@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The build broke whenever a new gson was released: LSP4J requests gson as an open version range, so a new release fell outside the dependency verification metadata. gson is now pinned.
+
 ## [0.1.1] — 2026-08-14
 
 ### Added

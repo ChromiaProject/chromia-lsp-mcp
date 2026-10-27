@@ -40,6 +40,11 @@ dependencies {
     implementation(libs.kotlinx.io.core)
     runtimeOnly(libs.slf4j.simple)
 
+    constraints {
+        // Pins the gson that lsp4j only asks for as an open range; see libs.versions.toml.
+        implementation(libs.gson) { version { strictly(libs.versions.gson.get()) } }
+    }
+
     // Artifact-only (`@jar`): the fat JAR is the whole point, and letting Gradle parse its POM
     // instead drags in the postchain dependency chain and its parents, which live in further
     // registries and are none of this project's business.
